@@ -740,7 +740,7 @@ export function useCommonLogsColumns(
           return (
             <div className='flex flex-col gap-0.5'>
               <span className='font-mono text-xs font-medium tabular-nums'>
-                {promptTokens.toLocaleString()} /{' '}
+                {(promptTokens - cacheReadTokens).toLocaleString()} /{' '}
                 {completionTokens.toLocaleString()}
               </span>
               {(cacheReadTokens > 0 || cacheWriteTokens > 0) && (

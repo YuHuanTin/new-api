@@ -293,7 +293,7 @@ export function CommonLogMobileCard<TData>(props: {
           <span>
             {t('Input')}{' '}
             <span className='text-foreground tabular-nums'>
-              {log.prompt_tokens.toLocaleString()}
+              {(log.prompt_tokens - cacheRead).toLocaleString()}
             </span>
           </span>
           <span>

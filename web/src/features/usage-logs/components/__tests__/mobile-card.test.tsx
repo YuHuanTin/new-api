@@ -214,6 +214,7 @@ it('respects hidden columns and omits admin fields in the self view', () => {
 it('keeps input, output and cache quantities readable without empty metric cells', () => {
   renderLogs()
   expect(screen.getByText('Input')).toBeVisible()
+  expect(screen.getByText('Input').nextElementSibling).toHaveTextContent('900')
   expect(screen.getByText('Output')).toBeVisible()
   expect(screen.getByText(/300/)).toBeVisible()
   expect(screen.getByText('Cache ↑ 200')).toBeVisible()
