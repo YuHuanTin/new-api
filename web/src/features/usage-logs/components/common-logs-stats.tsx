@@ -21,16 +21,79 @@ import { getRouteApi } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatLogQuota } from '@/lib/format'
+import { toIntlLocale } from '@/i18n/languages'
+import { formatLogQuota, formatNumber } from '@/lib/format'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
-import { getLogStats, getUserLogStats } from '../api'
+import { getAllLogs, getLogStats, getUserLogStats, getUserLogs } from '../api'
 import { DEFAULT_LOG_STATS } from '../constants'
+import type { UsageLog } from '../data/schema'
+import {
+  calculateCommonLogTokenStats,
+  mergeCommonLogTokenStats,
+} from '../lib/stats'
 import { buildApiParams } from '../lib/utils'
 import { useLogsViewScope, useUsageLogsContext } from './usage-logs-provider'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
+const STATS_LOG_PAGE_SIZE = 100
+const STATS_LOG_REQUEST_CONCURRENCY = 5
+
+async function fetchFilteredLogsForStats(
+  isAdmin: boolean,
+  searchParams: Record<string, unknown>
+): Promise<ReturnType<typeof calculateCommonLogTokenStats>> {
+  const fetchPage = async (page: number) => {
+    const params = buildApiParams({
+      page,
+      pageSize: STATS_LOG_PAGE_SIZE,
+      searchParams,
+      columnFilters: [],
+      isAdmin,
+    })
+    const response = isAdmin
+      ? await getAllLogs(params)
+      : await getUserLogs(params)
+    const result = requireServerSuccess(response)
+
+    return {
+      stats: calculateCommonLogTokenStats(
+        (result.data?.items ?? []) as UsageLog[]
+      ),
+      total: result.data?.total ?? 0,
+    }
+  }
+
+  const firstPage = await fetchPage(1)
+  const pageCount = Math.ceil(firstPage.total / STATS_LOG_PAGE_SIZE)
+  if (pageCount <= 1) return firstPage.stats
+
+  let stats = firstPage.stats
+  for (
+    let firstBatchPage = 2;
+    firstBatchPage <= pageCount;
+    firstBatchPage += STATS_LOG_REQUEST_CONCURRENCY
+  ) {
+    const pageBatch = await Promise.all(
+      Array.from(
+        {
+          length: Math.min(
+            STATS_LOG_REQUEST_CONCURRENCY,
+            pageCount - firstBatchPage + 1
+          ),
+        },
+        (_, index) => fetchPage(firstBatchPage + index)
+      )
+    )
+    stats = mergeCommonLogTokenStats(
+      stats,
+      ...pageBatch.map((page) => page.stats)
+    )
+  }
+
+  return stats
+}
 
 function StatBadge(props: {
   label: string
@@ -49,10 +112,11 @@ function StatBadge(props: {
 }
 
 export function CommonLogsStats() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { isAdminView: isAdmin } = useLogsViewScope()
   const searchParams = route.useSearch()
   const { sensitiveVisible } = useUsageLogsContext()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
 
   const { data: stats, isLoading } = useQuery({
     queryKey: ['usage-logs-stats', isAdmin, searchParams],
@@ -76,12 +140,35 @@ export function CommonLogsStats() {
     placeholderData: (previousData) => previousData,
   })
 
+  const { data: tokenStats } = useQuery({
+    queryKey: [
+      'usage-logs-token-stats',
+      isAdmin,
+      {
+        startTime: searchParams.startTime,
+        endTime: searchParams.endTime,
+        type: searchParams.type,
+        model: searchParams.model,
+        token: searchParams.token,
+        group: searchParams.group,
+        channel: searchParams.channel,
+        username: searchParams.username,
+        requestId: searchParams.requestId,
+        upstreamRequestId: searchParams.upstreamRequestId,
+      },
+    ],
+    queryFn: () => fetchFilteredLogsForStats(isAdmin, searchParams),
+    staleTime: 30_000,
+  })
+
   if (isLoading) {
     return (
       <div className='flex items-center gap-2'>
         <Skeleton className='h-7 w-[150px] rounded-md' />
         <Skeleton className='h-7 w-[100px] rounded-md' />
         <Skeleton className='h-7 w-[120px] rounded-md' />
+        <Skeleton className='h-7 w-[120px] rounded-md' />
+        <Skeleton className='h-7 w-[140px] rounded-md' />
       </div>
     )
   }
@@ -102,6 +189,18 @@ export function CommonLogsStats() {
         label={t('TPM')}
         value={stats?.tpm || 0}
         accent='bg-slate-400/70'
+      />
+      <StatBadge
+        label={t('Cache Rate')}
+        value={
+          tokenStats ? `${formatNumber(tokenStats.cacheRate, locale)}%` : '-'
+        }
+        accent='bg-emerald-500/65'
+      />
+      <StatBadge
+        label={t('Total Tokens')}
+        value={formatNumber(tokenStats?.totalTokens, locale)}
+        accent='bg-amber-500/65'
       />
     </div>
   )

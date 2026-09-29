@@ -26,6 +26,7 @@ import {
   parseSidebarModulesAdmin,
   serializeSidebarModulesAdmin,
 } from '@/features/system-settings/maintenance/config'
+import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { useSidebarConfig } from '../use-sidebar-config'
@@ -179,4 +180,32 @@ describe('audit log sidebar entry', () => {
     expect(titles).not.toContain('Usage Logs')
     expect(titles).toContain('Audit Logs')
   })
+})
+
+describe('pricing sidebar shortcuts', () => {
+  it(
+    'places model and group pricing after Task Plugins and marks them super-admin-only',
+    () => {
+      const { result } = sidebarFor()
+      const items =
+        result.current.find((group) => group.id === 'admin')?.items ?? []
+      const titles = items.map((item) => item.title)
+      const taskPluginsIndex = titles.indexOf('Task Plugins')
+
+      expect(items.slice(taskPluginsIndex, taskPluginsIndex + 4)).toEqual([
+        expect.objectContaining({ title: 'Task Plugins' }),
+        expect.objectContaining({
+          title: 'Model Pricing',
+          url: '/system-settings/billing/model-pricing',
+          requiredRole: ROLE.SUPER_ADMIN,
+        }),
+        expect.objectContaining({
+          title: 'Group Pricing',
+          url: '/system-settings/billing/group-pricing',
+          requiredRole: ROLE.SUPER_ADMIN,
+        }),
+        expect.objectContaining({ title: 'System Settings' }),
+      ])
+    }
+  )
 })

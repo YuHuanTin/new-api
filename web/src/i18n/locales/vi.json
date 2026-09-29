@@ -912,6 +912,7 @@
     "Cache Entries": "Mục bộ nhớ đệm",
     "Cache mode": "Chế độ bộ đệm",
     "Cache pricing": "Giá bộ nhớ đệm",
+    "Cache Rate": "Tỷ lệ cache",
     "Cache ratio": "Tỷ lệ bộ nhớ đệm",
     "Cache Read": "Đọc bộ nhớ đệm",
     "Cache read price": "Giá đọc cache",
@@ -2279,6 +2280,7 @@
     "Expires": "Hết hạn",
     "Expires at": "Hết hạn lúc",
     "Expires in": "Còn lại",
+    "Export": "Xuất",
     "Export snapshot": "Xuất bản chụp",
     "Expose ratio API": "Cung cấp API tỷ lệ",
     "Exposes the pricing/models catalog in the top navigation.": "Hiển thị danh mục giá/mô hình trên thanh điều hướng đầu trang.",
@@ -2365,6 +2367,7 @@
     "Failed to enable channels": "Không thể kích hoạt các kênh",
     "Failed to enable model": "Không thể kích hoạt mô hình",
     "Failed to enable tag channels": "Không thể kích hoạt kênh thẻ",
+    "Failed to export logs": "Không thể xuất nhật ký",
     "Failed to fetch channel key": "Không thể lấy khóa kênh",
     "Failed to fetch checkin status": "Không thể tải trạng thái điểm danh",
     "Failed to fetch deployment details": "Không thể lấy chi tiết triển khai",
@@ -6777,8 +6780,6 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom",
-    "Export": "Xuất",
-    "Failed to export logs": "Không thể xuất nhật ký"
+    "Zoom": "Zoom"
   }
 }

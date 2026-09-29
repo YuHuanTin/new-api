@@ -176,6 +176,9 @@ it('keeps all quick actions visible without opening a menu', async () => {
   for (const name of ['Hide', 'Filter', 'Search', 'View', 'Export']) {
     expect(screen.getByRole('button', { name })).toBeVisible()
   }
+  expect(
+    screen.getByRole('button', { name: 'Export' }).querySelector('svg')
+  ).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'More' })).not.toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: 'Hide' }))
   expect(screen.getByRole('button', { name: 'Show' })).toBeVisible()
@@ -184,6 +187,31 @@ it('keeps all quick actions visible without opening a menu', async () => {
     await user.tab()
     expect(screen.getByRole('button', { name })).toHaveFocus()
   }
+})
+
+it('renders the desktop Export action without an icon', () => {
+  function ExportFixture() {
+    const table = useReactTable({
+      data: [],
+      columns: [],
+      getCoreRowModel: getCoreRowModel(),
+    })
+    return (
+      <LogsFilterToolbar
+        table={table}
+        primaryFilters={null}
+        hasActiveFilters={false}
+        onReset={() => {}}
+        onSearch={() => {}}
+        onExport={() => {}}
+      />
+    )
+  }
+
+  render(<ExportFixture />)
+  expect(
+    screen.getByRole('button', { name: 'Export' }).querySelector('svg')
+  ).not.toBeInTheDocument()
 })
 
 function LoadingFixture(props: { loading: boolean; onSearch: () => void }) {

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { Table } from '@tanstack/react-table'
-import { ChevronDown, Download, Loader2 } from 'lucide-react'
+import { ChevronDown, Loader2 } from 'lucide-react'
 import { useState, type ComponentProps, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -193,7 +193,6 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
                   aria-busy={props.exportLoading}
                 >
                   {props.exportLoading && <Loader2 className='animate-spin' />}
-                  {!props.exportLoading && <Download />}
                   {t('Export')}
                 </Button>
               )}
@@ -309,7 +308,6 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
               aria-busy={props.exportLoading}
             >
               {props.exportLoading && <Loader2 className='animate-spin' />}
-              {!props.exportLoading && <Download />}
               {t('Export')}
             </Button>
           )}

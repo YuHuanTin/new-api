@@ -912,6 +912,7 @@
     "Cache Entries": "Записи кэша",
     "Cache mode": "Режим кэша",
     "Cache pricing": "Цены кэша",
+    "Cache Rate": "Доля кэширования",
     "Cache ratio": "Коэффициент кэша",
     "Cache Read": "Чтение кэша",
     "Cache read price": "Цена чтения кэша",
@@ -2279,6 +2280,7 @@
     "Expires": "Истекает",
     "Expires at": "Истекает",
     "Expires in": "До истечения",
+    "Export": "Экспорт",
     "Export snapshot": "Экспорт снимка",
     "Expose ratio API": "Интерфейс экспонирования коэффициента",
     "Exposes the pricing/models catalog in the top navigation.": "Отображает каталог цен/моделей в верхней навигации.",
@@ -2365,6 +2367,7 @@
     "Failed to enable channels": "Не удалось включить каналы",
     "Failed to enable model": "Не удалось включить модель",
     "Failed to enable tag channels": "Не удалось включить каналы тегов",
+    "Failed to export logs": "Не удалось экспортировать журналы",
     "Failed to fetch channel key": "Не удалось получить ключ канала",
     "Failed to fetch checkin status": "Не удалось получить статус регистрации",
     "Failed to fetch deployment details": "Не удалось получить сведения о развертывании",
@@ -6777,8 +6780,6 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom",
-    "Export": "Экспорт",
-    "Failed to export logs": "Не удалось экспортировать журналы"
+    "Zoom": "Zoom"
   }
 }

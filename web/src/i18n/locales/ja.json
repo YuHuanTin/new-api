@@ -912,6 +912,7 @@
     "Cache Entries": "キャッシュエントリ",
     "Cache mode": "キャッシュモード",
     "Cache pricing": "キャッシュ料金",
+    "Cache Rate": "キャッシュ率",
     "Cache ratio": "キャッシュ倍率",
     "Cache Read": "キャッシュ読み取り",
     "Cache read price": "キャッシュ読み取り価格",
@@ -2279,6 +2280,7 @@
     "Expires": "有効期限",
     "Expires at": "有効期限",
     "Expires in": "期限まで",
+    "Export": "エクスポート",
     "Export snapshot": "スナップショットを出力",
     "Expose ratio API": "倍率APIを公開",
     "Exposes the pricing/models catalog in the top navigation.": "価格/モデルカタログをトップナビゲーションに表示します。",
@@ -2365,6 +2367,7 @@
     "Failed to enable channels": "チャネルの有効化に失敗しました",
     "Failed to enable model": "モデルの有効化に失敗しました",
     "Failed to enable tag channels": "タグチャネルの有効化に失敗しました",
+    "Failed to export logs": "ログのエクスポートに失敗しました",
     "Failed to fetch channel key": "チャネルキーの取得に失敗しました",
     "Failed to fetch checkin status": "チェックインステータスの取得に失敗しました",
     "Failed to fetch deployment details": "デプロイメント詳細の取得に失敗しました",
@@ -6777,8 +6780,6 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム",
-    "Export": "エクスポート",
-    "Failed to export logs": "ログのエクスポートに失敗しました"
+    "Zoom": "ズーム"
   }
 }

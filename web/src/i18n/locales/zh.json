@@ -912,6 +912,7 @@
     "Cache Entries": "缓存条目",
     "Cache mode": "缓存模式",
     "Cache pricing": "缓存定价",
+    "Cache Rate": "缓存率",
     "Cache ratio": "缓存倍率",
     "Cache Read": "缓存读取",
     "Cache read price": "缓存读取价格",
@@ -2279,6 +2280,7 @@
     "Expires": "过期",
     "Expires at": "到期时间",
     "Expires in": "剩余到期时间",
+    "Export": "导出",
     "Export snapshot": "导出快照",
     "Expose ratio API": "暴露倍率接口",
     "Exposes the pricing/models catalog in the top navigation.": "在顶部导航中显示定价/模型目录。",
@@ -2365,6 +2367,7 @@
     "Failed to enable channels": "启用渠道失败",
     "Failed to enable model": "启用模型失败",
     "Failed to enable tag channels": "启用标签渠道失败",
+    "Failed to export logs": "导出日志失败",
     "Failed to fetch channel key": "获取渠道密钥失败",
     "Failed to fetch checkin status": "获取签到状态失败",
     "Failed to fetch deployment details": "获取部署详情失败",
@@ -6777,8 +6780,6 @@
     "Zhipu": "智谱",
     "Zhipu GLM": "智谱GLM",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放",
-    "Export": "导出",
-    "Failed to export logs": "导出日志失败"
+    "Zoom": "缩放"
   }
 }

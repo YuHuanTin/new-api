@@ -227,6 +227,7 @@ export function CommonLogsFilterBar<TData>(
       })
       queryClient.invalidateQueries({ queryKey: ['logs'] })
       queryClient.invalidateQueries({ queryKey: ['usage-logs-stats'] })
+      queryClient.invalidateQueries({ queryKey: ['usage-logs-token-stats'] })
     },
     [filters, logType, navigate, queryClient]
   )
@@ -255,6 +256,7 @@ export function CommonLogsFilterBar<TData>(
     })
     queryClient.invalidateQueries({ queryKey: ['logs'] })
     queryClient.invalidateQueries({ queryKey: ['usage-logs-stats'] })
+    queryClient.invalidateQueries({ queryKey: ['usage-logs-token-stats'] })
   }, [navigate, queryClient])
 
   const handleKeyDown = useCallback(
