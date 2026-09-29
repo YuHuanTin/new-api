@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { Table } from '@tanstack/react-table'
-import { ChevronDown, Loader2 } from 'lucide-react'
+import { ChevronDown, Download, Loader2 } from 'lucide-react'
 import { useState, type ComponentProps, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -54,8 +54,10 @@ interface LogsFilterToolbarProps<TData> {
   hasAdvancedActiveFilters?: boolean
   advancedFilterCount?: number
   searchLoading?: boolean
+  exportLoading?: boolean
   onReset: () => void
   onSearch: () => void
+  onExport?: () => void
   className?: string
 }
 
@@ -182,6 +184,19 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
                 {t('Search')}
               </Button>
               <DataTableViewOptions table={props.table} />
+              {props.onExport && (
+                <Button
+                  type='button'
+                  variant='outline'
+                  onClick={props.onExport}
+                  disabled={props.exportLoading || props.searchLoading}
+                  aria-busy={props.exportLoading}
+                >
+                  {props.exportLoading && <Loader2 className='animate-spin' />}
+                  {!props.exportLoading && <Download />}
+                  {t('Export')}
+                </Button>
+              )}
             </>
           }
         >
@@ -285,6 +300,19 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
             {t('Search')}
           </Button>
           <DataTableViewOptions table={props.table} />
+          {props.onExport && (
+            <Button
+              type='button'
+              variant='outline'
+              onClick={props.onExport}
+              disabled={props.exportLoading || props.searchLoading}
+              aria-busy={props.exportLoading}
+            >
+              {props.exportLoading && <Loader2 className='animate-spin' />}
+              {!props.exportLoading && <Download />}
+              {t('Export')}
+            </Button>
+          )}
         </div>
       </div>
     </div>

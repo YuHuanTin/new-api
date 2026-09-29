@@ -866,14 +866,17 @@ export function useCommonLogsColumns(
 
           return (
             <>
-              <button
-                type='button'
-                className='group flex max-w-[200px] items-center gap-1 text-left text-xs'
-                onClick={() => setDialogOpen(true)}
-                title={t('Click to view full details')}
-              >
-                {detailPreview}
-              </button>
+            <div className='flex max-w-[200px] items-center gap-1 max-sm:w-full max-sm:pr-5'>
+                <button
+                  type='button'
+                  data-log-details-trigger
+                  className='group flex min-w-0 flex-1 items-center gap-1 text-left text-xs'
+                  onClick={() => setDialogOpen(true)}
+                  title={t('Click to view full details')}
+                >
+                  {detailPreview}
+                </button>
+            </div>
               <DetailsDialog
                 log={log}
                 isAdmin={isAdmin}

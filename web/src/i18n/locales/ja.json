@@ -6777,6 +6777,8 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "Export": "エクスポート",
+    "Failed to export logs": "ログのエクスポートに失敗しました"
   }
 }

@@ -124,7 +124,11 @@ function renderPreview(other: LogOtherData, isAdmin = true) {
       </QueryClientProvider>
     </I18nextProvider>
   )
-  return screen.getByRole('button', { name: /./ })
+  const preview = document.querySelector<HTMLButtonElement>(
+    '[data-log-details-trigger]'
+  )
+  if (!preview) throw new Error('The log details trigger must be rendered')
+  return preview
 }
 
 test('keeps log details open when the parent refreshes with unchanged data', async () => {

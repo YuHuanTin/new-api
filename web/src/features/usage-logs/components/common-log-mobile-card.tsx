@@ -315,7 +315,7 @@ export function CommonLogMobileCard<TData>(props: {
         </div>
       )}
       {contentCell && (
-        <div className='relative min-w-0 border-t pt-2 [&_button]:min-h-8 [&_button]:w-full [&_button]:max-w-full [&_button]:pr-5 [&_button]:text-sm [&_button>span]:line-clamp-2 [&_button>span]:[overflow-wrap:anywhere] [&_button>span]:whitespace-normal'>
+        <div className='relative min-w-0 border-t pt-2 [&_[data-log-details-trigger]]:min-h-8 [&_[data-log-details-trigger]]:w-full [&_[data-log-details-trigger]]:max-w-full [&_[data-log-details-trigger]]:pr-0 [&_[data-log-details-trigger]]:text-sm [&_[data-log-details-trigger]>span]:line-clamp-2 [&_[data-log-details-trigger]>span]:[overflow-wrap:anywhere] [&_[data-log-details-trigger]>span]:whitespace-normal'>
           {flexRender(
             contentCell.column.columnDef.cell,
             contentCell.getContext()
