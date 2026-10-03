@@ -503,6 +503,8 @@
     "An unknown error occurred": "Đã xảy ra lỗi không xác định",
     "Analyze data": "Phân tích dữ liệu",
     "and": "and",
+    "Comment": "Bình luận",
+    "Comment for {{group}}": "Bình luận cho nhóm {{group}}",
     "Announcement added. Click \"Save Settings\" to apply.": "Đã thêm thông báo. Nhấp \"Save Settings\" để áp dụng.",
     "Announcement content": "Nội dung thông báo",
     "Announcement deleted. Click \"Save Settings\" to apply.": "Đã xóa thông báo. Nhấp \"Save Settings\" để áp dụng.",

@@ -503,6 +503,8 @@
     "An unknown error occurred": "Une erreur inconnue est survenue",
     "Analyze data": "Analyser les données",
     "and": "et",
+    "Comment": "Commentaire",
+    "Comment for {{group}}": "Commentaire pour {{group}}",
     "Announcement added. Click \"Save Settings\" to apply.": "Annonce ajoutée. Cliquez sur \"Enregistrer les paramètres\" pour appliquer.",
     "Announcement content": "Contenu de l'annonce",
     "Announcement deleted. Click \"Save Settings\" to apply.": "Annonce supprimée. Cliquez sur \"Enregistrer les paramètres\" pour appliquer.",

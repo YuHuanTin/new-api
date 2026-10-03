@@ -50,6 +50,13 @@ export function formatCompactNumber(
   }).format(value as number)
 }
 
+export function formatRatioCompact(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '-'
+  return value % 1 === 0
+    ? String(value)
+    : value.toFixed(4).replace(/\.?0+$/, '')
+}
+
 export function formatPercent(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value as number)) return '-'
   return Intl.NumberFormat(undefined, {

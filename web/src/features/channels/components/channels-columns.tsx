@@ -52,7 +52,7 @@ import {
   formatQuotaWithCurrency,
   getCurrencyLabel,
 } from '@/lib/currency'
-import { formatTimestampToDate } from '@/lib/format'
+import { formatRatioCompact, formatTimestampToDate } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import { createServerError } from '@/lib/server-error-message'
 import { truncateText } from '@/lib/utils'
@@ -618,11 +618,15 @@ export function BalanceCell({ channel }: { channel: Channel }) {
 export function useChannelsColumns(
   options: {
     enableSelection?: boolean
+    groupRatios?: Record<string, number>
+    groupComments?: Record<string, string>
   } = {}
 ): ColumnDef<Channel>[] {
   const { t, i18n } = useTranslation()
   const { sensitiveVisible } = useChannels()
   const enableSelection = options.enableSelection ?? true
+  const groupRatios = options.groupRatios
+  const groupComments = options.groupComments
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   // The column definitions only depend on the translation function, the active
   // locale, and sensitive-data visibility. Memoizing keeps the array (and every
@@ -1102,14 +1106,23 @@ export function useChannelsColumns(
           const groupArray = parseGroupsList(group)
           return (
             <BadgeListCell
-              items={groupArray.map((g) => (
-                <GroupBadge
-                  key={g}
-                  group={g}
-                  label={sensitiveVisible ? undefined : SENSITIVE_MASK}
-                  size='sm'
-                />
-              ))}
+              items={groupArray.map((g) => {
+                const ratio = groupRatios?.[g]
+                return (
+                  <span key={g} className='inline-flex items-center gap-1'>
+                    <GroupBadge
+                      group={g}
+                      label={sensitiveVisible ? undefined : SENSITIVE_MASK}
+                      size='sm'
+                    />
+                    {ratio != null && (
+                      <span className='text-muted-foreground/60 relative top-px tabular-nums'>
+                        {formatRatioCompact(ratio)}x
+                      </span>
+                    )}
+                  </span>
+                )
+              })}
             />
           )
         },
@@ -1122,6 +1135,32 @@ export function useChannelsColumns(
           return groupArray.some((g) => value.includes(g))
         },
         size: 150,
+        enableSorting: false,
+      },
+
+      {
+        id: 'group-comments',
+        header: t('Comment'),
+        meta: { mobileHidden: true },
+        cell: ({ row }) => {
+          const groups = parseGroupsList(row.original.group ?? '')
+          const comments = groups.flatMap((group) => {
+            const comment = groupComments?.[group]?.trim()
+            if (!comment) return []
+            return [groups.length > 1 ? `${group}: ${comment}` : comment]
+          })
+          if (comments.length === 0) {
+            return <span className='text-muted-foreground text-xs'>-</span>
+          }
+          return (
+            <TruncatedText
+              text={comments.join(' / ')}
+              maxWidth='max-w-[240px]'
+              className='-ml-1.5 text-xs'
+            />
+          )
+        },
+        size: 220,
         enableSorting: false,
       },
 
@@ -1264,6 +1303,6 @@ export function useChannelsColumns(
         meta: { pinned: 'right' as const },
       },
     ],
-    [enableSelection, t, locale, sensitiveVisible]
+    [enableSelection, groupComments, groupRatios, t, locale, sensitiveVisible]
   )
 }

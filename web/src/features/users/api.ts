@@ -32,6 +32,7 @@ import type {
   ManageUserAction,
   ManageUserQuotaPayload,
   ApiResponse,
+  GroupListResponse,
 } from './types'
 
 // A step-up proof is single-use, so the request carrying it must never be
@@ -204,7 +205,7 @@ export async function resetUserTwoFA(
 /**
  * Get all available groups
  */
-export async function getGroups(): Promise<ApiResponse<string[]>> {
+export async function getGroups(): Promise<GroupListResponse> {
   const res = await api.get('/api/group/')
   return res.data
 }

@@ -503,6 +503,8 @@
     "An unknown error occurred": "发生未知错误",
     "Analyze data": "分析数据",
     "and": "和",
+    "Comment": "注释",
+    "Comment for {{group}}": "{{group}} 的注释",
     "Announcement added. Click \"Save Settings\" to apply.": "公告已添加。点击 \"保存设置\" 以应用。",
     "Announcement content": "公告内容",
     "Announcement deleted. Click \"Save Settings\" to apply.": "公告已删除。点击 \"保存设置\" 以应用。",

@@ -503,6 +503,8 @@
     "An unknown error occurred": "Произошла неизвестная ошибка",
     "Analyze data": "Анализировать данные",
     "and": "и",
+    "Comment": "Комментарий",
+    "Comment for {{group}}": "Комментарий для группы {{group}}",
     "Announcement added. Click \"Save Settings\" to apply.": "Объявление добавлено. Нажмите \"Сохранить настройки\", чтобы применить.",
     "Announcement content": "Содержимое объявления",
     "Announcement deleted. Click \"Save Settings\" to apply.": "Объявление удалено. Нажмите \"Сохранить настройки\", чтобы применить.",
