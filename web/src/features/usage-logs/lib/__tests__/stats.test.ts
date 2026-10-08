@@ -65,6 +65,25 @@ describe('calculateCommonLogTokenStats', () => {
     })
   })
 
+  it('counts Claude cache reads and writes as input for cache rate and total tokens', () => {
+    const log = makeLog({
+      prompt_tokens: 2,
+      completion_tokens: 9255,
+      other: JSON.stringify({
+        claude: true,
+        cache_tokens: 46137,
+        cache_creation_tokens: 3736,
+      }),
+    })
+
+    const stats = calculateCommonLogTokenStats([log])
+
+    expect(stats.inputTokens).toBe(49875)
+    expect(stats.cachedInputTokens).toBe(46137)
+    expect(stats.cacheRate).toBeCloseTo(92.5, 1)
+    expect(stats.totalTokens).toBe(59130)
+  })
+
   it('merges paged stats using token counts instead of averaging percentages', () => {
     const firstPage = calculateCommonLogTokenStats([
       makeLog({

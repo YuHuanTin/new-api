@@ -340,6 +340,19 @@ export function hasAnyCacheTokens(
   )
 }
 
+/**
+ * Input tokens shown in the usage log. Claude-style logs store `prompt_tokens`
+ * as uncached input already, while OpenAI-style logs include cached tokens in
+ * `prompt_tokens`, so only the latter needs cache reads removed.
+ */
+export function getDisplayInputTokens(
+  log: { prompt_tokens: number },
+  other: LogOtherData | null | undefined
+): number {
+  if (other?.claude === true) return log.prompt_tokens
+  return log.prompt_tokens - (other?.cache_tokens || 0)
+}
+
 export function getTieredBillingSummary(
   other: LogOtherData | null
 ): TieredBillingSummary | null {

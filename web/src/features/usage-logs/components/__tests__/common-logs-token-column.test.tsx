@@ -52,4 +52,27 @@ describe('common usage log token column', () => {
     expect(screen.getByText('1,265 / 348')).toBeVisible()
     expect(screen.getByText('Cache↓ 47,872')).toBeVisible()
   })
+
+  it('shows Claude input tokens as reported without subtracting cache reads', () => {
+    const log = usageLogSchema.parse({
+      id: 1,
+      user_id: 1,
+      created_at: 1,
+      type: 2,
+      content: '',
+      prompt_tokens: 2,
+      completion_tokens: 9255,
+      other: JSON.stringify({
+        claude: true,
+        cache_tokens: 46137,
+        cache_creation_tokens: 3736,
+      }),
+    })
+
+    render(<TokenColumnView log={log} />)
+
+    expect(screen.getByText('2 / 9,255')).toBeVisible()
+    expect(screen.getByText('Cache↓ 46,137')).toBeVisible()
+    expect(screen.getByText('↑ 3,736')).toBeVisible()
+  })
 })

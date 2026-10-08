@@ -65,9 +65,19 @@ export function calculateCommonLogTokenStats(
       nonNegative(other?.cache_tokens),
       nonNegative(other?.image_cache_tokens)
     )
+    // Claude's prompt_tokens excludes cache reads and writes, so add them back
+    // to get the total input that the cache rate is measured against.
+    const cacheWriteTokens =
+      nonNegative(other?.cache_creation_tokens_5m) +
+        nonNegative(other?.cache_creation_tokens_1h) ||
+      nonNegative(other?.cache_creation_tokens)
+    const inputTokens =
+      other?.claude === true
+        ? promptTokens + cachedTokens + cacheWriteTokens
+        : promptTokens
 
-    totalInputTokens += promptTokens
-    totalTokens += promptTokens + completionTokens
+    totalInputTokens += inputTokens
+    totalTokens += inputTokens + completionTokens
     cachedInputTokens += cachedTokens
   }
 
