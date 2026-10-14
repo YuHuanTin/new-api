@@ -16,155 +16,128 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { afterEach, expect, test, vi } from 'vitest'
+import { createInstance } from 'i18next'
+import { describe, expect, test } from 'vitest'
 
-import { getAllLogs, getUserLogs } from '../../api'
 import type { UsageLog } from '../../data/schema'
-import { exportUsageLogs } from '../export'
+import { getLogCsvHeader, getLogCsvRow, toCsvLine } from '../export'
 
-vi.mock('../../api', () => ({
-  getAllLogs: vi.fn(),
-  getUserLogs: vi.fn(),
-}))
+const consumeLog: UsageLog = {
+  id: 1,
+  user_id: 7,
+  created_at: new Date(2026, 9, 12, 8, 30, 5).getTime() / 1000,
+  type: 2,
+  content: '',
+  username: 'alice',
+  token_name: 'prod',
+  model_name: 'gpt-4o-mini',
+  quota: 250000,
+  prompt_tokens: 2008,
+  completion_tokens: 16,
+  use_time: 3,
+  is_stream: true,
+  channel: 162,
+  channel_name: 'azure',
+  token_id: 5,
+  group: 'default',
+  ip: '203.0.113.9',
+  other: JSON.stringify({
+    cache_tokens: 1906,
+    cache_creation_tokens_5m: 10,
+    cache_creation_tokens_1h: 5,
+  }),
+  request_id: 'req-1',
+  upstream_request_id: '',
+}
 
-const logs: UsageLog[] = [
-  {
-    id: 1,
-    user_id: 7,
-    created_at: 1,
-    type: 2,
-    content: 'first',
-    username: 'user',
-    token_name: 'token',
-    model_name: 'model',
-    quota: 1,
-    prompt_tokens: 2,
-    completion_tokens: 3,
-    use_time: 4,
-    is_stream: false,
-    channel: 5,
-    channel_name: '',
-    token_id: 6,
-    group: 'default',
-    ip: '',
-    other: '{}',
-    request_id: 'request/1',
-    upstream_request_id: '',
-  },
-  {
-    id: 2,
-    user_id: 7,
-    created_at: 2,
-    type: 2,
-    content: 'second',
-    username: 'user',
-    token_name: 'token',
-    model_name: 'model',
-    quota: 1,
-    prompt_tokens: 2,
-    completion_tokens: 3,
-    use_time: 4,
-    is_stream: false,
-    channel: 5,
-    channel_name: '',
-    token_id: 6,
-    group: 'default',
-    ip: '',
-    other: '{}',
-    request_id: 'request/2',
-    upstream_request_id: '',
-  },
-]
-
-afterEach(() => {
-  vi.clearAllMocks()
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
-})
-
-test('exports every filtered page through the user-scoped endpoint', async () => {
-  const firstPage = Array.from({ length: 100 }, (_, index) => ({
-    ...logs[0],
-    id: index + 1,
-    request_id: `request/${index + 1}`,
-  }))
-  vi.mocked(getUserLogs)
-    .mockResolvedValueOnce({
-      success: true,
-      data: { items: firstPage, total: 101, page: 1, page_size: 100 },
-    })
-    .mockResolvedValueOnce({
-      success: true,
-      data: { items: logs.slice(1), total: 101, page: 2, page_size: 100 },
-    })
-  const objectUrl = 'blob:usage-logs'
-  let exportedBlob: Blob | undefined
-  const createObjectURL = vi.fn((blob: Blob) => {
-    exportedBlob = blob
-    return objectUrl
-  })
-  const revokeObjectURL = vi.fn()
-  vi.stubGlobal(
-    'URL',
-    Object.assign(class extends URL {}, { createObjectURL, revokeObjectURL })
-  )
-  vi.spyOn(Date, 'now').mockReturnValue(123)
-  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(
-    () => undefined
-  )
-  const anchor = document.createElement('a')
-  vi.spyOn(document, 'createElement').mockReturnValue(anchor)
-
-  await exportUsageLogs({
-    isAdmin: false,
-    searchParams: {
-      model: 'model',
-      username: 'other-user',
-      channel: '99',
+async function chineseTranslator() {
+  const i18n = createInstance()
+  await i18n.init({
+    lng: 'zh',
+    resources: {
+      zh: {
+        translation: {
+          Time: '时间',
+          User: '用户',
+          Channel: '渠道',
+          Consume: '消费',
+          'Top-up': '充值',
+          Yes: '是',
+          'Recharged {{amount}}': '充值 {{amount}}',
+        },
+      },
     },
   })
+  return i18n.t
+}
 
-  expect(getAllLogs).not.toHaveBeenCalled()
-  expect(getUserLogs).toHaveBeenCalledTimes(2)
-  expect(getUserLogs).toHaveBeenNthCalledWith(
-    1,
-    expect.objectContaining({ p: 1, page_size: 100, model_name: 'model' })
-  )
-  const firstRequest = vi.mocked(getUserLogs).mock.calls[0][0]
-  expect(firstRequest).not.toHaveProperty('username')
-  expect(firstRequest).not.toHaveProperty('channel')
-  expect(anchor.download).toBe('usage-logs-123.json')
-  if (!exportedBlob) throw new Error('The exported blob must be created')
-  const exportedText = await exportedBlob.text()
-  expect(exportedText).toContain('request/1')
-  expect(exportedText).toContain('request/2')
-  expect(revokeObjectURL).toHaveBeenCalledWith(objectUrl)
-})
+describe('usage log CSV export', () => {
+  test('header in the user view has no user or channel column', async () => {
+    const t = await chineseTranslator()
 
-test('uses the admin endpoint for admin exports', async () => {
-  vi.mocked(getAllLogs).mockResolvedValueOnce({
-    success: true,
-    data: { items: [], total: 0, page: 1, page_size: 100 },
-  })
-  const objectUrl = 'blob:usage-logs'
-  const createObjectURL = vi.fn(() => objectUrl)
-  const revokeObjectURL = vi.fn()
-  vi.stubGlobal(
-    'URL',
-    Object.assign(class extends URL {}, { createObjectURL, revokeObjectURL })
-  )
-  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(
-    () => undefined
-  )
+    const header = getLogCsvHeader(false, t)
 
-  await exportUsageLogs({
-    isAdmin: true,
-    searchParams: { username: 'other-user', channel: '99' },
+    expect(header[0]).toBe('时间')
+    expect(header).not.toContain('用户')
+    expect(header).not.toContain('渠道')
   })
 
-  expect(getUserLogs).not.toHaveBeenCalled()
-  expect(getAllLogs).toHaveBeenCalledWith(
-    expect.objectContaining({ username: 'other-user', channel: 99 })
-  )
-  expect(revokeObjectURL).toHaveBeenCalledWith(objectUrl)
+  test('administrator row shows the user and channel next to the matching header', async () => {
+    const t = await chineseTranslator()
+
+    const header = getLogCsvHeader(true, t)
+    const row = getLogCsvRow(consumeLog, true, t)
+
+    expect(row).toHaveLength(header.length)
+    expect(row[header.indexOf('用户')]).toBe('alice')
+    expect(row[header.indexOf('渠道')]).toBe('#162 azure')
+  })
+
+  test('consume log row matches the log table values', async () => {
+    const t = await chineseTranslator()
+
+    expect(getLogCsvRow(consumeLog, false, t)).toEqual([
+      '2026-10-12 08:30:05',
+      '消费',
+      'prod',
+      'default',
+      'gpt-4o-mini',
+      '是',
+      '2008',
+      '16',
+      '1906',
+      '15',
+      '$0.5',
+      '3s',
+      '203.0.113.9',
+      'req-1',
+      '',
+    ])
+  })
+
+  test('top-up log row leaves usage cells empty and shows the translated content', async () => {
+    const t = await chineseTranslator()
+    const topup: UsageLog = {
+      ...consumeLog,
+      type: 1,
+      content: 'Recharged $5',
+      other: JSON.stringify({
+        content_parts: [
+          { key: 'Recharged {{amount}}', params: { amount: '$5' } },
+        ],
+      }),
+    }
+
+    const row = getLogCsvRow(topup, false, t)
+
+    expect(row.slice(1, 2)).toEqual(['充值'])
+    expect(row.slice(5, 12)).toEqual(['', '', '', '', '', '', ''])
+    expect(row.at(-1)).toBe('充值 $5')
+  })
+
+  test('cells are quoted and text that starts a formula stays text', () => {
+    expect(
+      toCsvLine(['=HYPERLINK("x")', '-12.5', '+cmd', 'a"b', 'two\nlines'])
+    ).toBe(`"'=HYPERLINK(""x"")","-12.5","'+cmd","a""b","two\nlines"\r\n`)
+  })
 })

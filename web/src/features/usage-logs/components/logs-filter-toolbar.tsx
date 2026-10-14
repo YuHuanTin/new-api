@@ -50,14 +50,13 @@ interface LogsFilterToolbarProps<TData> {
   mobileFilterCount?: number
   stats?: ReactNode
   actionStart?: ReactNode
+  actionEnd?: ReactNode
   hasActiveFilters: boolean
   hasAdvancedActiveFilters?: boolean
   advancedFilterCount?: number
   searchLoading?: boolean
-  exportLoading?: boolean
   onReset: () => void
   onSearch: () => void
-  onExport?: () => void
   className?: string
 }
 
@@ -183,19 +182,8 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
                 {props.searchLoading && <Loader2 className='animate-spin' />}
                 {t('Search')}
               </Button>
+              {props.actionEnd}
               <DataTableViewOptions table={props.table} />
-              {props.onExport && (
-                <Button
-                  type='button'
-                  variant='outline'
-                  onClick={props.onExport}
-                  disabled={props.exportLoading || props.searchLoading}
-                  aria-busy={props.exportLoading}
-                >
-                  {props.exportLoading && <Loader2 className='animate-spin' />}
-                  {t('Export')}
-                </Button>
-              )}
             </>
           }
         >
@@ -298,19 +286,8 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
             {props.searchLoading && <Loader2 className='animate-spin' />}
             {t('Search')}
           </Button>
+          {props.actionEnd}
           <DataTableViewOptions table={props.table} />
-          {props.onExport && (
-            <Button
-              type='button'
-              variant='outline'
-              onClick={props.onExport}
-              disabled={props.exportLoading || props.searchLoading}
-              aria-busy={props.exportLoading}
-            >
-              {props.exportLoading && <Loader2 className='animate-spin' />}
-              {t('Export')}
-            </Button>
-          )}
         </div>
       </div>
     </div>

@@ -42,16 +42,15 @@ import {
 import { getGroups } from '@/features/users/api'
 import { useMediaQuery } from '@/hooks'
 import { getUserGroups } from '@/lib/api'
-import { handleServerError } from '@/lib/handle-server-error'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
 import { LOG_TYPE_ALL_VALUE, LOG_TYPE_FILTERS } from '../constants'
-import { exportUsageLogs } from '../lib/export'
 import { buildSearchParams } from '../lib/filter'
 import { getDefaultTimeRange } from '../lib/utils'
 import type { CommonLogFilters } from '../types'
 import { CommonLogsStats } from './common-logs-stats'
 import { CompactDateTimeRangePicker } from './compact-date-time-range-picker'
+import { ExportLogsDialog } from './dialogs/export-logs-dialog'
 import {
   LogsFilterField,
   LogsFilterInput,
@@ -192,7 +191,6 @@ export function CommonLogsFilterBar<TData>(
     searchParams.type,
   ])
   const [draft, setDraft] = useState<CommonLogDraft>(() => searchState)
-  const [exportLoading, setExportLoading] = useState(false)
   const activeDraft =
     draft.sourceKey === searchState.sourceKey ? draft : searchState
   const filters = activeDraft.filters
@@ -265,22 +263,6 @@ export function CommonLogsFilterBar<TData>(
     },
     [handleApply]
   )
-
-  const handleExport = useCallback(async () => {
-    if (exportLoading) return
-    setExportLoading(true)
-    try {
-      await exportUsageLogs({
-        isAdmin,
-        searchParams,
-        columnFilters: props.table.getState().columnFilters,
-      })
-    } catch (error) {
-      handleServerError(error, t('Failed to export logs'))
-    } finally {
-      setExportLoading(false)
-    }
-  }, [exportLoading, isAdmin, props.table, searchParams, t])
 
   const hasExpandedFilters =
     !!filters.token ||
@@ -510,6 +492,7 @@ export function CommonLogsFilterBar<TData>(
       compactMobile
       stats={statsBar}
       actionStart={sensitiveToggle}
+      actionEnd={<ExportLogsDialog />}
       primaryFilters={
         <>
           {dateRangeFilter}
@@ -538,8 +521,6 @@ export function CommonLogsFilterBar<TData>(
       onSearch={() => handleApply()}
       searchLoading={fetchingLogs > 0}
       onReset={handleReset}
-      onExport={() => void handleExport()}
-      exportLoading={exportLoading}
     />
   )
 }
