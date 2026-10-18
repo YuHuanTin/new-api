@@ -78,6 +78,7 @@ export async function searchUsers(
     group = '',
     role = '',
     status = '',
+    inviter_id = '',
     p = 1,
     page_size = 10,
     sort_by,
@@ -88,6 +89,7 @@ export async function searchUsers(
   queryParams.set('group', group)
   if (role) queryParams.set('role', role)
   if (status) queryParams.set('status', status)
+  if (inviter_id) queryParams.set('inviter_id', inviter_id)
   queryParams.set('p', String(p))
   queryParams.set('page_size', String(page_size))
   if (sort_by) queryParams.set('sort_by', sort_by)
@@ -141,6 +143,23 @@ export async function deleteUser(
 ): Promise<ApiResponse> {
   const res = await api.delete(
     `/api/user/${id}/`,
+    securityProofConfig(proofToken)
+  )
+  return res.data
+}
+
+/**
+ * Hard-delete several users at once; requires an `admin.user.batch_delete`
+ * proof bound to the same set of IDs. The whole batch is rejected if any
+ * account cannot be deleted.
+ */
+export async function deleteUsersBatch(
+  ids: number[],
+  proofToken: string
+): Promise<ApiResponse<number>> {
+  const res = await api.post(
+    '/api/user/batch_delete',
+    { ids },
     securityProofConfig(proofToken)
   )
   return res.data

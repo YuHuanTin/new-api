@@ -2829,7 +2829,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "相关项目",
     "footer.defaultCopyright": "版权所有。",
-    "footer.new\u0061pi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
+    "footer.newapi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
     "For advanced custom channels this applies only to /v1/responses routes without protocol conversion.": "高级自定义渠道仅对 /v1/responses 且不做协议转换的路由生效。",
     "GitHub ID is empty!": "GitHub ID 为空！",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "对于 2025 年 5 月 10 日之后添加的渠道，在部署时无需从模型名称中移除 \".\"",
@@ -7321,6 +7321,14 @@
     "Zhipu": "智谱",
     "Zhipu GLM": "智谱GLM",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "Filter by inviter ID...": "按邀请人 ID 筛选...",
+    "Delete selected users": "删除选中用户",
+    "Verify to delete selected users": "验证后删除选中用户",
+    "Confirm your identity before permanently deleting {{count}} selected users.": "在永久删除 {{count}} 个选中用户前，请先确认您的身份。",
+    "This will permanently delete {{count}} selected users. This action cannot be undone.": "此操作将永久删除 {{count}} 个选中用户，且无法撤销。",
+    "Selected users deleted successfully": "选中用户已删除",
+    "Invited users can invite others 24 hours after registration": "被邀请注册的用户需在注册 24 小时后才能邀请他人",
+    "This invitation code has already invited a user in the last 24 hours": "该邀请码在 24 小时内已邀请过一名用户"
   }
 }

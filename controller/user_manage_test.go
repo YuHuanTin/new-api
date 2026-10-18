@@ -90,10 +90,17 @@ func performManageUserRequest(t *testing.T, body string) *httptest.ResponseRecor
 // a dashboard login session, carrying the step-up proof status or role changes need.
 func performVerifiedManageUserRequest(t *testing.T, body string, identity service.AuthIdentity, proof string) *httptest.ResponseRecorder {
 	t.Helper()
+	return performRootUserRequest(t, ManageUser, "/api/user/manage", body, identity, proof)
+}
+
+// performRootUserRequest runs a user-management handler as the root operator
+// from a dashboard login session, carrying the step-up proof when one is given.
+func performRootUserRequest(t *testing.T, handler gin.HandlerFunc, path string, body string, identity service.AuthIdentity, proof string) *httptest.ResponseRecorder {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/user/manage", strings.NewReader(body))
+	c.Request = httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 	if proof != "" {
 		c.Request.Header.Set("X-Security-Proof", proof)
@@ -105,7 +112,7 @@ func performVerifiedManageUserRequest(t *testing.T, body string, identity servic
 	c.Set("auth_version", identity.UserAuthVersion)
 	c.Set("session_version", identity.SessionVersion)
 	c.Set(common.RequestIdKey, "quota-test-request")
-	ManageUser(c)
+	handler(c)
 	return recorder
 }
 
@@ -723,4 +730,66 @@ func TestUpdateUserSettingKeepsWhatTheRequestLeavesOut(t *testing.T) {
 			assert.Equal(t, tc.want, user.GetSetting())
 		})
 	}
+}
+
+func TestDeleteUserBatchDeletesSelectionOnceOrRejectsWholeBatch(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	createBatchUser := func(name string, role int) model.User {
+		user := model.User{
+			Username: name, Password: "password", Role: role,
+			Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1, AffCode: name + "-aff",
+		}
+		require.NoError(t, db.Create(&user).Error)
+		return user
+	}
+	first := createBatchUser("batch-first", common.RoleCommonUser)
+	second := createBatchUser("batch-second", common.RoleCommonUser)
+	root := createBatchUser("batch-root", common.RoleRootUser)
+	admin := createBatchUser("batch-admin", common.RoleAdminUser)
+	countActive := func(ids ...int) int64 {
+		var count int64
+		require.NoError(t, db.Model(&model.User{}).Where("id IN ?", ids).Count(&count).Error)
+		return count
+	}
+
+	t.Run("a Root account in the selection rejects the whole batch", func(t *testing.T) {
+		ids := []int{first.Id, root.Id}
+		identity, proof := manageUserProof(t, db, service.VerificationOperation{Scope: service.VerificationScopeAdminUserBatchDelete, Context: []byte(fmt.Sprintf(`{"user_ids":[%d,%d]}`, first.Id, root.Id))})
+		body := fmt.Sprintf(`{"ids":[%d,%d]}`, first.Id, root.Id)
+		recorder := performRootUserRequest(t, DeleteUserBatch, "/api/user/batch_delete", body, identity, proof)
+		assert.Contains(t, recorder.Body.String(), `"success":false`)
+		assert.EqualValues(t, len(ids), countActive(ids...))
+	})
+
+	t.Run("a proof for another selection cannot delete this one", func(t *testing.T) {
+		identity, proof := manageUserProof(t, db, service.VerificationOperation{Scope: service.VerificationScopeAdminUserBatchDelete, Context: []byte(fmt.Sprintf(`{"user_ids":[%d]}`, first.Id))})
+		body := fmt.Sprintf(`{"ids":[%d,%d]}`, first.Id, second.Id)
+		recorder := performRootUserRequest(t, DeleteUserBatch, "/api/user/batch_delete", body, identity, proof)
+		assert.Contains(t, recorder.Body.String(), `"success":false`)
+		assert.EqualValues(t, 2, countActive(first.Id, second.Id))
+	})
+
+	t.Run("a selection with an unknown ID deletes nothing", func(t *testing.T) {
+		identity, proof := manageUserProof(t, db, service.VerificationOperation{Scope: service.VerificationScopeAdminUserBatchDelete, Context: []byte(fmt.Sprintf(`{"user_ids":[%d,%d]}`, first.Id, 999999))})
+		body := fmt.Sprintf(`{"ids":[%d,999999]}`, first.Id)
+		recorder := performRootUserRequest(t, DeleteUserBatch, "/api/user/batch_delete", body, identity, proof)
+		assert.Contains(t, recorder.Body.String(), `"success":false`)
+		assert.EqualValues(t, 1, countActive(first.Id))
+	})
+
+	t.Run("an operator at the target's role is rejected under the row lock", func(t *testing.T) {
+		_, err := model.HardDeleteUsersByIds([]int{admin.Id}, common.RoleAdminUser)
+		require.Error(t, err)
+		assert.EqualValues(t, 1, countActive(admin.Id))
+	})
+
+	t.Run("one proof deletes the whole selection regardless of input order", func(t *testing.T) {
+		identity, proof := manageUserProof(t, db, service.VerificationOperation{Scope: service.VerificationScopeAdminUserBatchDelete, Context: []byte(fmt.Sprintf(`{"user_ids":[%d,%d]}`, first.Id, second.Id))})
+		body := fmt.Sprintf(`{"ids":[%d,%d]}`, second.Id, first.Id)
+		recorder := performRootUserRequest(t, DeleteUserBatch, "/api/user/batch_delete", body, identity, proof)
+		assert.Contains(t, recorder.Body.String(), `"success":true`)
+		var deleted int64
+		require.NoError(t, db.Unscoped().Model(&model.User{}).Where("id IN ? AND deleted_at IS NOT NULL", []int{first.Id, second.Id}).Count(&deleted).Error)
+		assert.EqualValues(t, 2, deleted)
+	})
 }

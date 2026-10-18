@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
@@ -289,4 +291,77 @@ func TestGlobalWebRateLimitCountsFrontendFilesInStaticBucket(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "1", webCount)
 	})
+}
+
+// Root sessions bypass the global API budget, so the console keeps working
+// when traffic from the same IP exhausts it. Common users, and any credential
+// that is not a live root session, stay limited.
+func TestGlobalAPIRateLimitExemptsOnlyLiveRootSessions(t *testing.T) {
+	setupDashboardAuthMiddlewareTest(t)
+	previousEnable := common.GlobalApiRateLimitEnable
+	previousNum := common.GlobalApiRateLimitNum
+	previousDuration := common.GlobalApiRateLimitDuration
+	common.GlobalApiRateLimitEnable = true
+	common.GlobalApiRateLimitNum = 1
+	common.GlobalApiRateLimitDuration = 60
+	t.Cleanup(func() {
+		common.GlobalApiRateLimitEnable = previousEnable
+		common.GlobalApiRateLimitNum = previousNum
+		common.GlobalApiRateLimitDuration = previousDuration
+	})
+
+	newUser := func(name string, role int) *model.User {
+		user := &model.User{
+			Username: name, Password: "password-placeholder", Role: role,
+			Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1,
+			AffCode: "rate-limit-aff-" + name,
+		}
+		require.NoError(t, model.DB.Create(user).Error)
+		return user
+	}
+	sessionToken := func(user *model.User) string {
+		bundle, err := service.CreateLoginSession(user.Id, "password", "127.0.0.1", "rate-limit-test")
+		require.NoError(t, err)
+		return bundle.AccessToken
+	}
+
+	root := newUser("rate-root", common.RoleRootUser)
+	admin := newUser("rate-admin", common.RoleAdminUser)
+	regular := newUser("rate-common", common.RoleCommonUser)
+
+	router := gin.New()
+	require.NoError(t, router.SetTrustedProxies(nil))
+	router.GET("/api/probe", GlobalAPIRateLimit(), func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	// Every case uses its own IP so the per-IP budget starts empty.
+	probe := func(ip, authorization string) int {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "/api/probe", nil)
+		request.RemoteAddr = ip + ":1000"
+		if authorization != "" {
+			request.Header.Set("Authorization", "Bearer "+authorization)
+		}
+		router.ServeHTTP(recorder, request)
+		return recorder.Code
+	}
+
+	rootToken := sessionToken(root)
+	assert.Equal(t, http.StatusNoContent, probe("192.0.2.1", rootToken))
+	assert.Equal(t, http.StatusNoContent, probe("192.0.2.1", rootToken), "root is exempt on every request")
+
+	assert.Equal(t, http.StatusNoContent, probe("192.0.2.2", ""))
+	assert.Equal(t, http.StatusTooManyRequests, probe("192.0.2.2", ""), "anonymous callers stay limited")
+
+	adminToken := sessionToken(admin)
+	assert.Equal(t, http.StatusNoContent, probe("192.0.2.3", adminToken))
+	assert.Equal(t, http.StatusTooManyRequests, probe("192.0.2.3", adminToken), "administrators are not exempt")
+
+	regularToken := sessionToken(regular)
+	assert.Equal(t, http.StatusNoContent, probe("192.0.2.4", regularToken))
+	assert.Equal(t, http.StatusTooManyRequests, probe("192.0.2.4", regularToken), "common users stay limited")
+
+	assert.Equal(t, http.StatusNoContent, probe("192.0.2.5", "not-a-credential"))
+	assert.Equal(t, http.StatusTooManyRequests, probe("192.0.2.5", tamperDashboardToken(rootToken)), "a tampered root JWT is not exempt")
 }

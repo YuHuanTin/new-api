@@ -26,74 +26,17 @@ import { formatLogQuota, formatNumber } from '@/lib/format'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
-import { getAllLogs, getLogStats, getUserLogStats, getUserLogs } from '../api'
-import { DEFAULT_LOG_STATS } from '../constants'
-import type { UsageLog } from '../data/schema'
 import {
-  calculateCommonLogTokenStats,
-  mergeCommonLogTokenStats,
-} from '../lib/stats'
+  getLogStats,
+  getLogTokenStats,
+  getUserLogStats,
+  getUserLogTokenStats,
+} from '../api'
+import { DEFAULT_LOG_STATS } from '../constants'
 import { buildApiParams } from '../lib/utils'
 import { useLogsViewScope, useUsageLogsContext } from './usage-logs-provider'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
-const STATS_LOG_PAGE_SIZE = 100
-const STATS_LOG_REQUEST_CONCURRENCY = 5
-
-async function fetchFilteredLogsForStats(
-  isAdmin: boolean,
-  searchParams: Record<string, unknown>
-): Promise<ReturnType<typeof calculateCommonLogTokenStats>> {
-  const fetchPage = async (page: number) => {
-    const params = buildApiParams({
-      page,
-      pageSize: STATS_LOG_PAGE_SIZE,
-      searchParams,
-      columnFilters: [],
-      isAdmin,
-    })
-    const response = isAdmin
-      ? await getAllLogs(params)
-      : await getUserLogs(params)
-    const result = requireServerSuccess(response)
-
-    return {
-      stats: calculateCommonLogTokenStats(
-        (result.data?.items ?? []) as UsageLog[]
-      ),
-      total: result.data?.total ?? 0,
-    }
-  }
-
-  const firstPage = await fetchPage(1)
-  const pageCount = Math.ceil(firstPage.total / STATS_LOG_PAGE_SIZE)
-  if (pageCount <= 1) return firstPage.stats
-
-  let stats = firstPage.stats
-  for (
-    let firstBatchPage = 2;
-    firstBatchPage <= pageCount;
-    firstBatchPage += STATS_LOG_REQUEST_CONCURRENCY
-  ) {
-    const pageBatch = await Promise.all(
-      Array.from(
-        {
-          length: Math.min(
-            STATS_LOG_REQUEST_CONCURRENCY,
-            pageCount - firstBatchPage + 1
-          ),
-        },
-        (_, index) => fetchPage(firstBatchPage + index)
-      )
-    )
-    stats = mergeCommonLogTokenStats(
-      stats,
-      ...pageBatch.map((page) => page.stats)
-    )
-  }
-
-  return stats
-}
 
 function StatBadge(props: {
   label: string
@@ -157,7 +100,19 @@ export function CommonLogsStats() {
         upstreamRequestId: searchParams.upstreamRequestId,
       },
     ],
-    queryFn: () => fetchFilteredLogsForStats(isAdmin, searchParams),
+    queryFn: async () => {
+      const params = buildApiParams({
+        page: 1,
+        pageSize: 1,
+        searchParams,
+        columnFilters: [],
+        isAdmin,
+      })
+      const result = isAdmin
+        ? requireServerSuccess(await getLogTokenStats(params))
+        : requireServerSuccess(await getUserLogTokenStats(params))
+      return result.data ?? null
+    },
     staleTime: 30_000,
   })
 
@@ -193,13 +148,13 @@ export function CommonLogsStats() {
       <StatBadge
         label={t('Cache Rate')}
         value={
-          tokenStats ? `${formatNumber(tokenStats.cacheRate, locale)}%` : '-'
+          tokenStats ? `${formatNumber(tokenStats.cache_rate, locale)}%` : '-'
         }
         accent='bg-emerald-500/65'
       />
       <StatBadge
         label={t('Total Tokens')}
-        value={formatNumber(tokenStats?.totalTokens, locale)}
+        value={formatNumber(tokenStats?.total_tokens, locale)}
         accent='bg-amber-500/65'
       />
     </div>

@@ -2829,7 +2829,7 @@
     "footer.columns.related.links.oneApi": "1つのAPI",
     "footer.columns.related.title": "関連プロジェクト",
     "footer.defaultCopyright": "すべての権利を留保します。",
-    "footer.new\u0061pi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
+    "footer.newapi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
     "For advanced custom channels this applies only to /v1/responses routes without protocol conversion.": "高度なカスタムチャネルでは、プロトコル変換を行わない /v1/responses ルートにのみ適用されます。",
     "GitHub ID is empty!": "GitHub ID が空です！",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "2025 年 5 月 10 日以降に追加されたチャネルの場合、デプロイ時にモデル名から「.」を削除する必要はありません",
@@ -7321,6 +7321,14 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "Filter by inviter ID...": "招待者 ID で絞り込み...",
+    "Delete selected users": "選択したユーザーを削除",
+    "Verify to delete selected users": "確認して選択したユーザーを削除",
+    "Confirm your identity before permanently deleting {{count}} selected users.": "選択した {{count}} 人のユーザーを完全に削除する前に、本人確認を行ってください。",
+    "This will permanently delete {{count}} selected users. This action cannot be undone.": "選択した {{count}} 人のユーザーを完全に削除します。この操作は取り消せません。",
+    "Selected users deleted successfully": "選択したユーザーを削除しました",
+    "Invited users can invite others 24 hours after registration": "招待されて登録したユーザーは、登録から24時間後に他のユーザーを招待できます",
+    "This invitation code has already invited a user in the last 24 hours": "この招待コードは過去 24 時間に既にユーザーを 1 人招待しています"
   }
 }

@@ -2829,7 +2829,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "Các Dự Án Liên Quan",
     "footer.defaultCopyright": "Bản quyền được bảo lưu.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
+    "footer.newapi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
     "For advanced custom channels this applies only to /v1/responses routes without protocol conversion.": "Với kênh tùy chỉnh nâng cao, thiết lập này chỉ áp dụng cho các route /v1/responses không chuyển đổi giao thức.",
     "GitHub ID is empty!": "ID GitHub trống!",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Đối với các kênh được thêm sau ngày 10 tháng 5 năm 2025, không cần loại bỏ \".\" khỏi tên mô hình trong quá trình triển khai",
@@ -7321,6 +7321,14 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Filter by inviter ID...": "Lọc theo ID người mời...",
+    "Delete selected users": "Xóa người dùng đã chọn",
+    "Verify to delete selected users": "Xác minh để xóa người dùng đã chọn",
+    "Confirm your identity before permanently deleting {{count}} selected users.": "Xác nhận danh tính của bạn trước khi xóa vĩnh viễn {{count}} người dùng đã chọn.",
+    "This will permanently delete {{count}} selected users. This action cannot be undone.": "Thao tác này sẽ xóa vĩnh viễn {{count}} người dùng đã chọn. Không thể hoàn tác.",
+    "Selected users deleted successfully": "Đã xóa người dùng đã chọn",
+    "Invited users can invite others 24 hours after registration": "Người dùng được mời chỉ có thể mời người khác sau 24 giờ kể từ khi đăng ký",
+    "This invitation code has already invited a user in the last 24 hours": "Mã mời này đã mời một người dùng trong 24 giờ qua"
   }
 }

@@ -435,7 +435,7 @@ func GetAllUsers(pageInfo *common.PageInfo, sortOptions ...UserSortOptions) (use
 	return users, total, nil
 }
 
-func SearchUsers(keyword string, group string, role *int, status *int, startIdx int, num int, sortOptions ...UserSortOptions) ([]*User, int64, error) {
+func SearchUsers(keyword string, group string, role *int, status *int, inviterId *int, startIdx int, num int, sortOptions ...UserSortOptions) ([]*User, int64, error) {
 	var users []*User
 	var total int64
 	var err error
@@ -472,6 +472,9 @@ func SearchUsers(keyword string, group string, role *int, status *int, startIdx 
 	}
 	if role != nil {
 		query = query.Where("role = ?", *role)
+	}
+	if inviterId != nil {
+		query = query.Where("inviter_id = ?", *inviterId)
 	}
 	if status != nil {
 		if *status == -1 {
@@ -672,9 +675,42 @@ func ensureEmailAvailableWithTx(tx *gorm.DB, email string, excludeUserID int) er
 	return nil
 }
 
+// ensureInviterCanInvite enforces the invitation limits for common users. Admins
+// and roots are exempt. A common user who was invited is on a 24-hour cooldown
+// from their own registration, and after that can invite one user per 24 hours.
+// It runs inside the insert transaction after locking the inviter row, so
+// concurrent sign-ups through the same code cannot both pass.
+func ensureInviterCanInvite(tx *gorm.DB, inviterId int) error {
+	if inviterId == 0 {
+		return nil
+	}
+	var inviter User
+	if err := lockForUpdate(tx.Select("role", "inviter_id", "created_at")).First(&inviter, "id = ?", inviterId).Error; err != nil {
+		return err
+	}
+	if inviter.Role >= common.RoleAdminUser {
+		return nil
+	}
+	since := common.GetTimestamp() - 24*60*60
+	if inviter.InviterId != 0 && inviter.CreatedAt > since {
+		return common.NewMessage("Invited users can invite others 24 hours after registration")
+	}
+	var invitedCount int64
+	if err := tx.Unscoped().Model(&User{}).Where("inviter_id = ? AND created_at >= ?", inviterId, since).Count(&invitedCount).Error; err != nil {
+		return err
+	}
+	if invitedCount > 0 {
+		return common.NewMessage("This invitation code has already invited a user in the last 24 hours")
+	}
+	return nil
+}
+
 func (user *User) Insert(inviterId int) error {
 	if err := DB.Transaction(func(tx *gorm.DB) error {
 		return withNormalizedEmailLock(tx, user.Email, func(tx *gorm.DB) error {
+			if err := ensureInviterCanInvite(tx, inviterId); err != nil {
+				return err
+			}
 			if err := user.prepareForInsert(tx); err != nil {
 				return err
 			}
@@ -739,6 +775,9 @@ func (user *User) FinishInsert(inviterId int) {
 // Post-creation tasks (sidebar config, logs, inviter rewards) are handled after the transaction commits.
 func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
 	return withNormalizedEmailLock(tx, user.Email, func(tx *gorm.DB) error {
+		if err := ensureInviterCanInvite(tx, inviterId); err != nil {
+			return err
+		}
 		if err := user.prepareForInsert(tx); err != nil {
 			return err
 		}
@@ -993,44 +1032,111 @@ func (user *User) delete(identity *AuthSessionIdentity) (int64, error) {
 	return revokedAccessTokens, invalidateUserCache(user.Id)
 }
 
+// hardDeleteOutcome carries what a committed hard delete must publish to the
+// caches. It is produced inside the transaction and applied only after commit.
+type hardDeleteOutcome struct {
+	userId              int
+	authVersion         int64
+	tokens              []Token
+	revokedAccessTokens int64
+}
+
+// hardDeleteWithTx removes the user and its authentication data inside tx. The
+// caller owns the transaction, so several users can be removed atomically.
+func (user *User) hardDeleteWithTx(tx *gorm.DB) (hardDeleteOutcome, error) {
+	outcome := hardDeleteOutcome{userId: user.Id}
+	var err error
+	outcome.authVersion, err = IncrementUserAuthVersionWithTx(tx, user.Id)
+	if err != nil {
+		return outcome, err
+	}
+	outcome.revokedAccessTokens, err = DeleteUserAccessTokensWithTx(tx, user.Id)
+	if err != nil {
+		return outcome, err
+	}
+	if common.RedisEnabled {
+		if err := tx.Unscoped().Select("id", commonKeyCol).Where("user_id = ?", user.Id).Find(&outcome.tokens).Error; err != nil {
+			return outcome, err
+		}
+	}
+	if err := deleteUserAuthenticationData(tx, user.Id); err != nil {
+		return outcome, err
+	}
+	return outcome, tx.Unscoped().Delete(user).Error
+}
+
+// publish invalidates caches after the owning transaction has committed.
+func (outcome hardDeleteOutcome) publish() {
+	if err := publishCommittedUserAuthVersion(outcome.userId, outcome.authVersion); err != nil {
+		common.SysError(common.LogText("failed to publish auth tombstone after hard deleting user %d: %v", outcome.userId, err))
+	}
+	if err := invalidateTokensCache(outcome.tokens); err != nil {
+		common.SysError(common.LogText("failed to invalidate token cache after hard deleting user %d: %v", outcome.userId, err))
+	}
+	if err := invalidateUserCache(outcome.userId); err != nil {
+		common.SysError(common.LogText("failed to invalidate user cache after hard deleting user %d: %v", outcome.userId, err))
+	}
+}
+
 func (user *User) HardDelete() (int64, error) {
 	if user.Id == 0 {
 		return 0, common.NewMessage("ID is empty!")
 	}
-	var tokens []Token
-	var deletedAuthVersion int64
-	var revokedAccessTokens int64
+	var outcome hardDeleteOutcome
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var err error
-		deletedAuthVersion, err = IncrementUserAuthVersionWithTx(tx, user.Id)
-		if err != nil {
-			return err
-		}
-		revokedAccessTokens, err = DeleteUserAccessTokensWithTx(tx, user.Id)
-		if err != nil {
-			return err
-		}
-		if common.RedisEnabled {
-			if err := tx.Unscoped().Select("id", commonKeyCol).Where("user_id = ?", user.Id).Find(&tokens).Error; err != nil {
-				return err
-			}
-		}
-		if err := deleteUserAuthenticationData(tx, user.Id); err != nil {
-			return err
-		}
-		return tx.Unscoped().Delete(user).Error
+		outcome, err = user.hardDeleteWithTx(tx)
+		return err
 	})
 	if err != nil {
 		return 0, err
 	}
-	if err := publishCommittedUserAuthVersion(user.Id, deletedAuthVersion); err != nil {
-		common.SysError(common.LogText("failed to publish auth tombstone after hard deleting user %d: %v", user.Id, err))
+	outcome.publish()
+	return outcome.revokedAccessTokens, nil
+}
+
+// HardDeleteUsersByIds removes all given users in one transaction: either every
+// user is deleted or none is. The rows are locked first and must all still exist,
+// not be roots, and sit below the operator's role, so a concurrent change cannot
+// slip past the caller's checks.
+func HardDeleteUsersByIds(ids []int, operatorRole int) (int64, error) {
+	var outcomes []hardDeleteOutcome
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var locked []User
+		if err := lockForUpdate(tx.Unscoped()).Select("id", "role", "deleted_at").Where("id IN ?", ids).Find(&locked).Error; err != nil {
+			return err
+		}
+		if len(locked) != len(ids) {
+			return common.NewMessage("User does not exist")
+		}
+		for _, user := range locked {
+			if user.DeletedAt.Valid {
+				return common.NewMessage("User does not exist")
+			}
+			if user.Role == common.RoleRootUser {
+				return common.NewMessage("Cannot delete super administrator account")
+			}
+			if operatorRole != common.RoleRootUser && operatorRole <= user.Role {
+				return common.NewMessage("No permission to update users of same or higher permission level")
+			}
+		}
+		for _, id := range ids {
+			user := User{Id: id}
+			outcome, err := user.hardDeleteWithTx(tx)
+			if err != nil {
+				return err
+			}
+			outcomes = append(outcomes, outcome)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
-	if err := invalidateTokensCache(tokens); err != nil {
-		common.SysError(common.LogText("failed to invalidate token cache after hard deleting user %d: %v", user.Id, err))
-	}
-	if err := invalidateUserCache(user.Id); err != nil {
-		common.SysError(common.LogText("failed to invalidate user cache after hard deleting user %d: %v", user.Id, err))
+	var revokedAccessTokens int64
+	for _, outcome := range outcomes {
+		outcome.publish()
+		revokedAccessTokens += outcome.revokedAccessTokens
 	}
 	return revokedAccessTokens, nil
 }

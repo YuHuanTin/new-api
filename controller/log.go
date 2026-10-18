@@ -227,6 +227,56 @@ func GetLogsStat(c *gin.Context) {
 	return
 }
 
+// GetLogsTokenStat totals the token usage and cache hits of the logs matching
+// the search. The sums are computed on the server so the console does not have
+// to page through every log to show them. Like the export, the search stays
+// within the longest log time range for every role.
+func GetLogsTokenStat(c *gin.Context) {
+	filter := logFilterFromQuery(c, true)
+	startTimestamp, err := limitLogTimeRange(filter.StartTimestamp, filter.EndTimestamp)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	filter.StartTimestamp = startTimestamp
+	stat, err := model.SumAllLogTokens(c.Request.Context(), filter)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"total_tokens":        stat.TotalTokens,
+		"input_tokens":        stat.InputTokens,
+		"cached_input_tokens": stat.CachedInputTokens,
+		"cache_rate":          stat.CacheRate(),
+	})
+}
+
+// GetLogsSelfTokenStat is GetLogsTokenStat for the caller's own logs. Like the
+// user log list, non-administrators are held to the longest log time range.
+func GetLogsSelfTokenStat(c *gin.Context) {
+	filter := logFilterFromQuery(c, false)
+	if c.GetInt("role") < common.RoleAdminUser {
+		startTimestamp, err := limitLogTimeRange(filter.StartTimestamp, filter.EndTimestamp)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		filter.StartTimestamp = startTimestamp
+	}
+	stat, err := model.SumUserLogTokens(c.Request.Context(), c.GetInt("id"), filter)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"total_tokens":        stat.TotalTokens,
+		"input_tokens":        stat.InputTokens,
+		"cached_input_tokens": stat.CachedInputTokens,
+		"cache_rate":          stat.CacheRate(),
+	})
+}
+
 func GetLogsSelfStat(c *gin.Context) {
 	username := c.GetString("username")
 	logType, _ := strconv.Atoi(c.Query("type"))

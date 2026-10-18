@@ -366,9 +366,15 @@ func SearchUsers(c *gin.Context) {
 			status = &parsed
 		}
 	}
+	var inviterId *int
+	if inviterIdStr := c.Query("inviter_id"); inviterIdStr != "" {
+		if parsed, err := strconv.Atoi(inviterIdStr); err == nil {
+			inviterId = &parsed
+		}
+	}
 	pageInfo := common.GetPageQuery(c)
 	sortOptions := model.NewUserSortOptions(c.Query("sort_by"), c.Query("sort_order"))
-	users, total, err := model.SearchUsers(keyword, group, role, status, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
+	users, total, err := model.SearchUsers(keyword, group, role, status, inviterId, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -961,6 +967,68 @@ func DeleteUser(c *gin.Context) {
 		"message": "",
 	})
 	return
+}
+
+// DeleteUserBatch hard-deletes a selected set of users under one step-up proof.
+// If any target is a Root account, already deleted, or outside the operator's
+// permission level, the whole batch is rejected before anything is deleted.
+func DeleteUserBatch(c *gin.Context) {
+	var req struct {
+		IDs []int `json:"ids"`
+	}
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		common.ApiErrorT(c, "Invalid parameters")
+		return
+	}
+	ids, ok := service.NormalizeAdminUserBatchIDs(req.IDs)
+	if !ok {
+		common.ApiErrorT(c, "Invalid parameters")
+		return
+	}
+	var users []model.User
+	if err := model.DB.Unscoped().Where("id IN ?", ids).Find(&users).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if len(users) != len(ids) {
+		common.ApiErrorT(c, "User does not exist")
+		return
+	}
+	myRole := c.GetInt("role")
+	for _, user := range users {
+		if user.DeletedAt.Valid {
+			common.ApiErrorT(c, "User does not exist")
+			return
+		}
+		if user.Role == common.RoleRootUser {
+			common.ApiErrorT(c, "Cannot delete super administrator account")
+			return
+		}
+		if !canManageTargetRole(myRole, user.Role) {
+			common.ApiErrorT(c, "No permission to update users of same or higher permission level")
+			return
+		}
+	}
+	authorization := requireAdminUserProof(c, service.VerificationScopeAdminUserBatchDelete, service.AdminUserBatchDeleteContext{UserIDs: ids})
+	if authorization == nil {
+		return
+	}
+	revokedAccessTokens, err := model.HardDeleteUsersByIds(ids, myRole)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAudit(c, "user.batch_delete", map[string]any{
+		"user_ids":              ids,
+		"count":                 len(ids),
+		"verification_method":   authorization.Method,
+		"revoked_access_tokens": revokedAccessTokens,
+	})
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    len(ids),
+	})
 }
 
 func DeleteSelf(c *gin.Context) {

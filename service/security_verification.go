@@ -41,6 +41,7 @@ const (
 	VerificationScopeAdminUserCreate       = "admin.user.create"
 	VerificationScopeAdminUserUpdate       = "admin.user.update"
 	VerificationScopeAdminUserDelete       = "admin.user.delete"
+	VerificationScopeAdminUserBatchDelete  = "admin.user.batch_delete"
 	VerificationScopeAdminUserManage       = "admin.user.manage"
 	VerificationScopeAdminUserPasskeyReset = "admin.user.passkey.reset"
 	VerificationScopeAdminUserTwoFADisable = "admin.user.2fa.disable"
@@ -101,6 +102,26 @@ type AdminUserBindingContext struct {
 
 type AdminUserCreateContext struct {
 	Role int `json:"role"`
+}
+
+// AdminUserBatchDeleteContext binds the whole selection into one proof, so the
+// operator verifies once for exactly this set of accounts.
+type AdminUserBatchDeleteContext struct {
+	UserIDs []int `json:"user_ids"`
+}
+
+// MaxAdminUserBatchDeleteSize caps how many accounts one proof can delete.
+const MaxAdminUserBatchDeleteSize = 100
+
+// NormalizeAdminUserBatchIDs sorts and deduplicates a batch selection so the
+// same set of accounts always produces the same proof binding. It reports false
+// when the set is empty, too large, or contains a non-positive ID.
+func NormalizeAdminUserBatchIDs(ids []int) ([]int, bool) {
+	normalized := slices.Compact(slices.Sorted(slices.Values(ids)))
+	if len(normalized) == 0 || len(normalized) > MaxAdminUserBatchDeleteSize || normalized[0] <= 0 {
+		return nil, false
+	}
+	return normalized, true
 }
 
 // AccessTokenGenerateContext binds a creation proof to the exact grant. Scopes
@@ -220,6 +241,17 @@ func BindVerificationOperation(operation VerificationOperation) (VerificationBin
 			return VerificationBinding{}, ErrVerificationContextInvalid
 		}
 		normalized = context
+	case VerificationScopeAdminUserBatchDelete:
+		var context AdminUserBatchDeleteContext
+		if len(fields) != 1 || common.Unmarshal(fields["user_ids"], &context.UserIDs) != nil {
+			return VerificationBinding{}, ErrVerificationContextInvalid
+		}
+		userIDs, ok := NormalizeAdminUserBatchIDs(context.UserIDs)
+		if !ok {
+			return VerificationBinding{}, ErrVerificationContextInvalid
+		}
+		context.UserIDs = userIDs
+		normalized = context
 	case VerificationScopeAdminUserCreate:
 		var context AdminUserCreateContext
 		if len(fields) != 1 || common.Unmarshal(fields["role"], &context.Role) != nil || context.Role < common.RoleAdminUser || !common.IsValidateRole(context.Role) {
@@ -328,7 +360,7 @@ func securityVerificationPolicy(scope string, state model.UserVerificationState)
 		VerificationScopeAccessTokenGenerate, VerificationScopeAccessTokenUpdate, VerificationScopeAccessTokenRevoke,
 		VerificationScopeAccountBind, VerificationScopeAccountUnbind,
 		VerificationScopePasswordSet, VerificationScopePasswordChange, VerificationScopeAccountDelete,
-		VerificationScopeAdminUserCreate, VerificationScopeAdminUserUpdate, VerificationScopeAdminUserDelete,
+		VerificationScopeAdminUserCreate, VerificationScopeAdminUserUpdate, VerificationScopeAdminUserDelete, VerificationScopeAdminUserBatchDelete,
 		VerificationScopeAdminUserManage, VerificationScopeAdminUserPasskeyReset,
 		VerificationScopeAdminUserTwoFADisable, VerificationScopeAdminUserBindingClear:
 		if scope == VerificationScopeAccountDelete && state.Role == common.RoleRootUser {
@@ -393,7 +425,7 @@ func GetVerificationRequirements(identity AuthIdentity, scope string) (*Verifica
 		if methods[i].Method == VerificationMethodPassword && !common.PasswordLoginEnabled {
 			switch scope {
 			case VerificationScopeAccountBind, VerificationScopeAccountUnbind, VerificationScopePasswordSet, VerificationScopePasswordChange, VerificationScopeAccountDelete,
-				VerificationScopeAdminUserCreate, VerificationScopeAdminUserUpdate, VerificationScopeAdminUserDelete,
+				VerificationScopeAdminUserCreate, VerificationScopeAdminUserUpdate, VerificationScopeAdminUserDelete, VerificationScopeAdminUserBatchDelete,
 				VerificationScopeAdminUserManage, VerificationScopeAdminUserPasskeyReset,
 				VerificationScopeAdminUserTwoFADisable, VerificationScopeAdminUserBindingClear:
 				methods[i].Available, methods[i].Reason = false, "Password authentication is disabled."

@@ -27,7 +27,9 @@ import {
   DISABLED_ROW_MOBILE,
   DataTablePage,
   useDataTable,
+  useDebouncedColumnFilter,
 } from '@/components/data-table'
+import { Input } from '@/components/ui/input'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import {
@@ -86,7 +88,20 @@ export function UsersTable() {
       { columnId: 'status', searchKey: 'status', type: 'array' },
       { columnId: 'role', searchKey: 'role', type: 'array' },
       { columnId: 'group', searchKey: 'group', type: 'array' },
+      { columnId: 'inviter_id', searchKey: 'inviter_id', type: 'string' },
     ],
+  })
+  const {
+    value: inviterIdFilter,
+    inputValue: inviterIdInput,
+    onChange: onInviterIdInputChange,
+    onCompositionStart: onInviterIdCompositionStart,
+    onCompositionEnd: onInviterIdCompositionEnd,
+    resetInput: resetInviterIdInput,
+  } = useDebouncedColumnFilter({
+    columnFilters,
+    columnId: 'inviter_id',
+    onColumnFiltersChange,
   })
   const statusFilter =
     (columnFilters.find((filter) => filter.id === 'status')?.value as
@@ -139,6 +154,7 @@ export function UsersTable() {
       statusFilter,
       roleFilter,
       groupFilter,
+      inviterIdFilter,
       sortParams,
       refreshTrigger,
     ],
@@ -147,7 +163,8 @@ export function UsersTable() {
       const hasColumnFilter =
         statusFilter.length > 0 ||
         roleFilter.length > 0 ||
-        groupFilter.length > 0
+        groupFilter.length > 0 ||
+        inviterIdFilter.trim() !== ''
       const params = {
         p: pagination.pageIndex + 1,
         page_size: pagination.pageSize,
@@ -162,6 +179,7 @@ export function UsersTable() {
               status: statusFilter[0] ?? '',
               role: roleFilter[0] ?? '',
               group: groupFilter[0] ?? '',
+              inviter_id: inviterIdFilter.trim(),
             })
           : await getUsers(params)
 
@@ -229,6 +247,20 @@ export function UsersTable() {
       toolbarProps={{
         searchPlaceholder: t('Filter by username, name or email...'),
         searchDebounceMs: 500,
+        onReset: () => {
+          resetInviterIdInput()
+        },
+        additionalSearch: (
+          <Input
+            placeholder={t('Filter by inviter ID...')}
+            value={inviterIdInput}
+            onChange={onInviterIdInputChange}
+            onCompositionStart={onInviterIdCompositionStart}
+            onCompositionEnd={onInviterIdCompositionEnd}
+            inputMode='numeric'
+            className='w-full sm:w-[150px] lg:w-[180px]'
+          />
+        ),
         filters: [
           {
             columnId: 'status',

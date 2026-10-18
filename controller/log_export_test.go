@@ -244,3 +244,44 @@ func TestAcquireLogExportLock(t *testing.T) {
 		})
 	}
 }
+
+func TestLogTokenStatEndpointsScopeAndRange(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, _ := newAuditTestDatabase(t, "sqlite", "")
+	useLogExportDatabases(t, db, db, common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	require.NoError(t, db.AutoMigrate(&model.Log{}))
+	now := common.GetTimestamp()
+	require.NoError(t, db.Create(&[]model.Log{
+		{UserId: 1, CreatedAt: now - 60, Type: model.LogTypeConsume, PromptTokens: 100, CompletionTokens: 50, Other: `{"cache_tokens":25}`},
+		{UserId: 2, CreatedAt: now - 60, Type: model.LogTypeConsume, PromptTokens: 300, CompletionTokens: 100, Other: `{"claude":true,"cache_tokens":100}`},
+		{UserId: 1, CreatedAt: now - 400*24*3600, Type: model.LogTypeConsume, PromptTokens: 9000, CompletionTokens: 1},
+	}).Error)
+	query := fmt.Sprintf("start_timestamp=%d&end_timestamp=%d", now-2*24*3600, now+60)
+	tooLong := fmt.Sprintf("start_timestamp=%d&end_timestamp=%d", now-366*24*3600, now+60)
+
+	adminStat := callLogHandler(t, GetLogsTokenStat, 3, common.RoleAdminUser, query)[0]
+	require.Equal(t, true, adminStat["success"])
+	adminData := adminStat["data"].(map[string]any)
+	assert.Equal(t, float64(650), adminData["total_tokens"], "administrators count every user's logs in range")
+	assert.Equal(t, float64(500), adminData["input_tokens"])
+	assert.Equal(t, float64(125), adminData["cached_input_tokens"])
+	assert.InDelta(t, 25, adminData["cache_rate"], 0.01)
+
+	ownStat := callLogHandler(t, GetLogsSelfTokenStat, 1, common.RoleCommonUser, query)[0]
+	require.Equal(t, true, ownStat["success"])
+	assert.Equal(t, map[string]any{
+		"total_tokens":        float64(150),
+		"input_tokens":        float64(100),
+		"cached_input_tokens": float64(25),
+		"cache_rate":          float64(25),
+	}, ownStat["data"], "the self endpoint counts only the caller's logs")
+
+	assert.Equal(t, false, callLogHandler(t, GetLogsSelfTokenStat, 1, common.RoleCommonUser, tooLong)[0]["success"], "common users are held to the log time range")
+	assert.Equal(t, true, callLogHandler(t, GetLogsSelfTokenStat, 3, common.RoleAdminUser, tooLong)[0]["success"], "administrators are not held to the log time range")
+	assert.Equal(t, false, callLogHandler(t, GetLogsTokenStat, 3, common.RoleAdminUser, tooLong)[0]["success"], "the global stat is held to the log time range like the export")
+
+	noStart := fmt.Sprintf("end_timestamp=%d", now+60)
+	defaulted := callLogHandler(t, GetLogsTokenStat, 3, common.RoleAdminUser, noStart)[0]
+	require.Equal(t, true, defaulted["success"])
+	assert.Equal(t, float64(650), defaulted["data"].(map[string]any)["total_tokens"], "without a start the range reaches back the longest range, excluding the 400-day-old log")
+}

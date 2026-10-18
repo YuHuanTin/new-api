@@ -136,4 +136,5 @@ export const ERROR_MESSAGES = {
 export const SUCCESS_MESSAGES = {
   USER_CREATED: 'User created successfully',
   USER_UPDATED: 'User updated successfully',
+  USERS_DELETED: 'Selected users deleted successfully',
 } as const

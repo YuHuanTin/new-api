@@ -27,6 +27,7 @@ import type {
   GetLogsResponse,
   GetLogStatsParams,
   GetLogStatsResponse,
+  GetLogTokenStatsResponse,
   GetMidjourneyLogsParams,
   GetTaskLogsParams,
   TaskArtifactsResponse,
@@ -87,6 +88,26 @@ export const getLogStats = (params: GetLogStatsParams = {}) =>
 export const getUserLogStats = (
   params: Omit<GetLogStatsParams, 'username' | 'channel'> = {}
 ) => fetchLogStats('/api/log', params, false)
+
+async function fetchLogTokenStats<T>(
+  endpoint: string,
+  params: T,
+  isAdmin: boolean
+): Promise<GetLogTokenStatsResponse> {
+  const queryParams = buildQueryParams(
+    params as unknown as Record<string, unknown>
+  )
+  const path = buildApiPath(endpoint, isAdmin)
+  const res = await api.get(`${path}/stat/tokens?${queryParams}`)
+  return res.data
+}
+
+export const getLogTokenStats = (params: GetLogStatsParams = {}) =>
+  fetchLogTokenStats('/api/log', params, true)
+
+export const getUserLogTokenStats = (
+  params: Omit<GetLogStatsParams, 'username' | 'channel'> = {}
+) => fetchLogTokenStats('/api/log', params, false)
 
 /**
  * Stream the logs matching params, newest first. The server sends one JSON

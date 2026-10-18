@@ -623,3 +623,53 @@ func TestValidateAuthSessionWithTxChecksAccessTokenIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestInsertEnforcesInvitationLimits(t *testing.T) {
+	setupUserUpdateTestState(t)
+	inviterUser := func(name string, role int, inviterId int) User {
+		user := User{
+			Username: name, Password: "unused-password-hash", Role: role, Status: common.UserStatusEnabled,
+			Group: "default", AuthVersion: 1, AffCode: name + "-aff", InviterId: inviterId,
+		}
+		require.NoError(t, DB.Create(&user).Error)
+		return user
+	}
+	newInvitee := func(name string, inviterId int) error {
+		invitee := User{Username: name, Password: "unused-password-hash", Role: common.RoleCommonUser, Group: "default", AffCode: name + "-aff"}
+		return invitee.Insert(inviterId)
+	}
+
+	t.Run("a common user can invite only one person per 24 hours", func(t *testing.T) {
+		inviter := inviterUser("limit-inviter", common.RoleCommonUser, 0)
+		require.NoError(t, newInvitee("limit-first", inviter.Id))
+		err := newInvitee("limit-second", inviter.Id)
+		assert.Error(t, err)
+	})
+
+	t.Run("an invitation older than 24 hours does not count", func(t *testing.T) {
+		inviter := inviterUser("aged-inviter", common.RoleCommonUser, 0)
+		old := inviterUser("aged-invitee", common.RoleCommonUser, inviter.Id)
+		require.NoError(t, DB.Model(&old).Update("created_at", time.Now().Add(-25*time.Hour).Unix()).Error)
+		assert.NoError(t, newInvitee("aged-new-invitee", inviter.Id))
+	})
+
+	t.Run("an invited user cannot invite anyone for 24 hours after registration", func(t *testing.T) {
+		root := inviterUser("cooldown-origin", common.RoleCommonUser, 0)
+		invited := inviterUser("cooldown-invited", common.RoleCommonUser, root.Id)
+		assert.Error(t, newInvitee("cooldown-leaf", invited.Id))
+	})
+
+	t.Run("an invited user can invite one person per 24 hours after the cooldown", func(t *testing.T) {
+		admin := inviterUser("admin-origin", common.RoleAdminUser, 0)
+		invited := inviterUser("admin-invited", common.RoleCommonUser, admin.Id)
+		require.NoError(t, DB.Model(&invited).Update("created_at", time.Now().Add(-25*time.Hour).Unix()).Error)
+		require.NoError(t, newInvitee("admin-chain-first", invited.Id))
+		assert.Error(t, newInvitee("admin-chain-second", invited.Id))
+	})
+
+	t.Run("an administrator is exempt from the limits", func(t *testing.T) {
+		admin := inviterUser("limit-admin", common.RoleAdminUser, 0)
+		require.NoError(t, newInvitee("admin-first", admin.Id))
+		assert.NoError(t, newInvitee("admin-second", admin.Id))
+	})
+}

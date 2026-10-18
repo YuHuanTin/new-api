@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
 )
@@ -107,7 +110,7 @@ func redisFixedWindowTake(ctx context.Context, key string, maxRequestNum int, du
 	return allowedValue == 1, count, ttlSeconds, nil
 }
 
-func redisRateLimiter(c *gin.Context, maxRequestNum int, duration int64, mark string) {
+func redisRateLimiter(c *gin.Context, maxRequestNum int, duration int64, mark string, exempt func(*gin.Context) bool) {
 	allowed, _, ttlSeconds, err := redisFixedWindowTake(
 		c.Request.Context(),
 		redisIPRateLimitKey(mark, c.ClientIP()),
@@ -120,14 +123,14 @@ func redisRateLimiter(c *gin.Context, maxRequestNum int, duration int64, mark st
 		c.Abort()
 		return
 	}
-	if !allowed {
+	if !allowed && (exempt == nil || !exempt(c)) {
 		writeRateLimited(c, ttlSeconds)
 	}
 }
 
-func memoryRateLimiter(c *gin.Context, maxRequestNum int, duration int64, mark string) {
+func memoryRateLimiter(c *gin.Context, maxRequestNum int, duration int64, mark string, exempt func(*gin.Context) bool) {
 	key := mark + c.ClientIP()
-	if !inMemoryRateLimiter.Request(key, maxRequestNum, duration) {
+	if !inMemoryRateLimiter.Request(key, maxRequestNum, duration) && (exempt == nil || !exempt(c)) {
 		writeRateLimited(c, duration)
 		return
 	}
@@ -146,15 +149,21 @@ func writeRateLimited(c *gin.Context, retryAfterSeconds int64) {
 }
 
 func rateLimitFactory(maxRequestNum int, duration int64, mark string) func(c *gin.Context) {
+	return rateLimitFactoryWithExemption(maxRequestNum, duration, mark, nil)
+}
+
+// rateLimitFactoryWithExemption runs exempt only for requests that are over the
+// limit, so the exemption costs nothing for requests that are allowed through.
+func rateLimitFactoryWithExemption(maxRequestNum int, duration int64, mark string, exempt func(*gin.Context) bool) func(c *gin.Context) {
 	if common.RedisEnabled {
 		return func(c *gin.Context) {
-			redisRateLimiter(c, maxRequestNum, duration, mark)
+			redisRateLimiter(c, maxRequestNum, duration, mark, exempt)
 		}
 	}
 	// It's safe to call multi times.
 	inMemoryRateLimiter.Init(common.RateLimitKeyExpirationDuration)
 	return func(c *gin.Context) {
-		memoryRateLimiter(c, maxRequestNum, duration, mark)
+		memoryRateLimiter(c, maxRequestNum, duration, mark, exempt)
 	}
 }
 
@@ -180,11 +189,40 @@ func GlobalWebRateLimit(frontendFS static.ServeFileSystem) func(c *gin.Context) 
 	}
 }
 
+// GlobalAPIRateLimit limits /api requests per IP. Root callers are exempt, but
+// only once they are over the limit, so the console stays usable when traffic
+// from the same IP exhausts the budget.
 func GlobalAPIRateLimit() func(c *gin.Context) {
-	if common.GlobalApiRateLimitEnable {
-		return rateLimitFactory(common.GlobalApiRateLimitNum, common.GlobalApiRateLimitDuration, "GA")
+	if !common.GlobalApiRateLimitEnable {
+		return defNext
 	}
-	return defNext
+	return rateLimitFactoryWithExemption(common.GlobalApiRateLimitNum, common.GlobalApiRateLimitDuration, "GA", isRootCredential)
+}
+
+// isRootCredential reports whether the request carries a live credential of an
+// enabled root user. It only reads state: an invalid, expired, or non-root
+// credential is not exempt, and the route's own authentication still decides
+// the request. The exemption only skips throttling, never grants access.
+func isRootCredential(c *gin.Context) bool {
+	raw, ok := authorizationToken(c.GetHeader("Authorization"))
+	if !ok {
+		return false
+	}
+	if identity, internal, err := service.ParseDashboardAccessToken(raw); internal {
+		if err != nil {
+			return false
+		}
+		_, user, err := service.ValidateLoginSession(identity)
+		return err == nil && user.Role == common.RoleRootUser
+	}
+	// Legacy opaque tokens are left to the normal limit so this check never
+	// touches their validation path.
+	if !strings.HasPrefix(raw, model.AccessTokenPrefix) {
+		return false
+	}
+	lookup := lookupAccessToken(c, raw)
+	return lookup.err == nil && lookup.user != nil &&
+		lookup.user.Status == common.UserStatusEnabled && lookup.user.Role == common.RoleRootUser
 }
 
 func CriticalRateLimit() func(c *gin.Context) {

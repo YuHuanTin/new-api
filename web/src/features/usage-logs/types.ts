@@ -287,6 +287,19 @@ export interface LogStatistics {
   tpm: number
 }
 
+export interface LogTokenStatistics {
+  total_tokens: number
+  input_tokens: number
+  cached_input_tokens: number
+  cache_rate: number
+}
+
+export interface GetLogTokenStatsResponse {
+  success: boolean
+  message?: string
+  data?: LogTokenStatistics
+}
+
 // ============================================================================
 // Drawing Logs (MjProxy) Types
 // ============================================================================
