@@ -7327,8 +7327,6 @@
     "Verify to delete selected users": "Подтвердите удаление выбранных пользователей",
     "Confirm your identity before permanently deleting {{count}} selected users.": "Подтвердите свою личность перед безвозвратным удалением выбранных пользователей ({{count}}).",
     "This will permanently delete {{count}} selected users. This action cannot be undone.": "Выбранные пользователи ({{count}}) будут безвозвратно удалены. Это действие нельзя отменить.",
-    "Selected users deleted successfully": "Выбранные пользователи удалены",
-    "Invited users can invite others 24 hours after registration": "Приглашённые пользователи смогут приглашать других через 24 часа после регистрации",
-    "This invitation code has already invited a user in the last 24 hours": "По этому коду приглашения уже был приглашён пользователь за последние 24 часа"
+    "Selected users deleted successfully": "Выбранные пользователи удалены"
   }
 }

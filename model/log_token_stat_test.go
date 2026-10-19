@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -76,6 +76,11 @@ func TestLogTokenStatAddMatchesInputAccounting(t *testing.T) {
 func TestSumUserLogTokensScopesToUserAndTimeRange(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(t.TempDir()+"/logs.db"), &gorm.Config{})
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		sqlDB, err := db.DB()
+		require.NoError(t, err)
+		require.NoError(t, sqlDB.Close())
+	})
 	require.NoError(t, db.AutoMigrate(&Log{}))
 	previousLogDB := LOG_DB
 	LOG_DB = db

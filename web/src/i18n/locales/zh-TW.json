@@ -7327,8 +7327,6 @@
     "Verify to delete selected users": "驗證後刪除選取的使用者",
     "Confirm your identity before permanently deleting {{count}} selected users.": "在永久刪除 {{count}} 位選取的使用者前，請先確認您的身分。",
     "This will permanently delete {{count}} selected users. This action cannot be undone.": "此操作將永久刪除 {{count}} 位選取的使用者，且無法復原。",
-    "Selected users deleted successfully": "選取的使用者已刪除",
-    "Invited users can invite others 24 hours after registration": "由他人邀請註冊的使用者需在註冊 24 小時後才能邀請他人",
-    "This invitation code has already invited a user in the last 24 hours": "此邀請碼在 24 小時內已邀請過一位使用者"
+    "Selected users deleted successfully": "選取的使用者已刪除"
   }
 }

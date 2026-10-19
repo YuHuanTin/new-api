@@ -7327,8 +7327,6 @@
     "Verify to delete selected users": "確認して選択したユーザーを削除",
     "Confirm your identity before permanently deleting {{count}} selected users.": "選択した {{count}} 人のユーザーを完全に削除する前に、本人確認を行ってください。",
     "This will permanently delete {{count}} selected users. This action cannot be undone.": "選択した {{count}} 人のユーザーを完全に削除します。この操作は取り消せません。",
-    "Selected users deleted successfully": "選択したユーザーを削除しました",
-    "Invited users can invite others 24 hours after registration": "招待されて登録したユーザーは、登録から24時間後に他のユーザーを招待できます",
-    "This invitation code has already invited a user in the last 24 hours": "この招待コードは過去 24 時間に既にユーザーを 1 人招待しています"
+    "Selected users deleted successfully": "選択したユーザーを削除しました"
   }
 }

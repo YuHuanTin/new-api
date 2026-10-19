@@ -7327,8 +7327,6 @@
     "Verify to delete selected users": "Xác minh để xóa người dùng đã chọn",
     "Confirm your identity before permanently deleting {{count}} selected users.": "Xác nhận danh tính của bạn trước khi xóa vĩnh viễn {{count}} người dùng đã chọn.",
     "This will permanently delete {{count}} selected users. This action cannot be undone.": "Thao tác này sẽ xóa vĩnh viễn {{count}} người dùng đã chọn. Không thể hoàn tác.",
-    "Selected users deleted successfully": "Đã xóa người dùng đã chọn",
-    "Invited users can invite others 24 hours after registration": "Người dùng được mời chỉ có thể mời người khác sau 24 giờ kể từ khi đăng ký",
-    "This invitation code has already invited a user in the last 24 hours": "Mã mời này đã mời một người dùng trong 24 giờ qua"
+    "Selected users deleted successfully": "Đã xóa người dùng đã chọn"
   }
 }

@@ -7327,8 +7327,6 @@
     "Verify to delete selected users": "Vérifier pour supprimer les utilisateurs sélectionnés",
     "Confirm your identity before permanently deleting {{count}} selected users.": "Confirmez votre identité avant de supprimer définitivement {{count}} utilisateurs sélectionnés.",
     "This will permanently delete {{count}} selected users. This action cannot be undone.": "Cette action supprimera définitivement {{count}} utilisateurs sélectionnés. Elle est irréversible.",
-    "Selected users deleted successfully": "Utilisateurs sélectionnés supprimés",
-    "Invited users can invite others 24 hours after registration": "Les utilisateurs invités ne peuvent inviter d'autres personnes que 24 heures après leur inscription",
-    "This invitation code has already invited a user in the last 24 hours": "Ce code d’invitation a déjà invité un utilisateur au cours des dernières 24 heures"
+    "Selected users deleted successfully": "Utilisateurs sélectionnés supprimés"
   }
 }

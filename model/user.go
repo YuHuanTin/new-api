@@ -675,42 +675,9 @@ func ensureEmailAvailableWithTx(tx *gorm.DB, email string, excludeUserID int) er
 	return nil
 }
 
-// ensureInviterCanInvite enforces the invitation limits for common users. Admins
-// and roots are exempt. A common user who was invited is on a 24-hour cooldown
-// from their own registration, and after that can invite one user per 24 hours.
-// It runs inside the insert transaction after locking the inviter row, so
-// concurrent sign-ups through the same code cannot both pass.
-func ensureInviterCanInvite(tx *gorm.DB, inviterId int) error {
-	if inviterId == 0 {
-		return nil
-	}
-	var inviter User
-	if err := lockForUpdate(tx.Select("role", "inviter_id", "created_at")).First(&inviter, "id = ?", inviterId).Error; err != nil {
-		return err
-	}
-	if inviter.Role >= common.RoleAdminUser {
-		return nil
-	}
-	since := common.GetTimestamp() - 24*60*60
-	if inviter.InviterId != 0 && inviter.CreatedAt > since {
-		return common.NewMessage("Invited users can invite others 24 hours after registration")
-	}
-	var invitedCount int64
-	if err := tx.Unscoped().Model(&User{}).Where("inviter_id = ? AND created_at >= ?", inviterId, since).Count(&invitedCount).Error; err != nil {
-		return err
-	}
-	if invitedCount > 0 {
-		return common.NewMessage("This invitation code has already invited a user in the last 24 hours")
-	}
-	return nil
-}
-
 func (user *User) Insert(inviterId int) error {
 	if err := DB.Transaction(func(tx *gorm.DB) error {
 		return withNormalizedEmailLock(tx, user.Email, func(tx *gorm.DB) error {
-			if err := ensureInviterCanInvite(tx, inviterId); err != nil {
-				return err
-			}
 			if err := user.prepareForInsert(tx); err != nil {
 				return err
 			}
@@ -775,9 +742,6 @@ func (user *User) FinishInsert(inviterId int) {
 // Post-creation tasks (sidebar config, logs, inviter rewards) are handled after the transaction commits.
 func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
 	return withNormalizedEmailLock(tx, user.Email, func(tx *gorm.DB) error {
-		if err := ensureInviterCanInvite(tx, inviterId); err != nil {
-			return err
-		}
 		if err := user.prepareForInsert(tx); err != nil {
 			return err
 		}

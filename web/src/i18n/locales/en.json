@@ -7327,8 +7327,6 @@
     "Verify to delete selected users": "Verify to delete selected users",
     "Confirm your identity before permanently deleting {{count}} selected users.": "Confirm your identity before permanently deleting {{count}} selected users.",
     "This will permanently delete {{count}} selected users. This action cannot be undone.": "This will permanently delete {{count}} selected users. This action cannot be undone.",
-    "Selected users deleted successfully": "Selected users deleted successfully",
-    "Invited users can invite others 24 hours after registration": "Invited users can invite others 24 hours after registration",
-    "This invitation code has already invited a user in the last 24 hours": "This invitation code has already invited a user in the last 24 hours"
+    "Selected users deleted successfully": "Selected users deleted successfully"
   }
 }
