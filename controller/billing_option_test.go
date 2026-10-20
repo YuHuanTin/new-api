@@ -21,8 +21,10 @@ import (
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestUpdateOptionRejectsInvalidTaskBillingExpressions(t *testing.T) {
@@ -322,4 +324,113 @@ func TestPreConsumeMultiplierRejectsInvalidRuntimeAndOverflow(t *testing.T) {
 		require.Error(t, err)
 		assert.Nil(t, info.Billing)
 	}
+}
+
+// inviteRebateOptionDB points the model layer at an in-memory database so the
+// option save path can be exercised without touching a file based database.
+func inviteRebateOptionDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, database.AutoMigrate(&model.Option{}, &model.AuditLog{}))
+	// An in-memory SQLite database is per connection, so the pool must stay at
+	// one connection for the migrated schema to be visible everywhere.
+	sqlDB, err := database.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+
+	previousDB, previousLogDB := model.DB, model.LOG_DB
+	previousRedis, previousMemory := common.RedisEnabled, common.MemoryCacheEnabled
+	model.DB, model.LOG_DB = database, database
+	common.OptionMapRWMutex.Lock()
+	previousOptions := common.OptionMap
+	common.OptionMap = map[string]string{}
+	common.OptionMapRWMutex.Unlock()
+	common.RedisEnabled, common.MemoryCacheEnabled = false, false
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB = previousDB, previousLogDB
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap = previousOptions
+		common.OptionMapRWMutex.Unlock()
+		common.RedisEnabled, common.MemoryCacheEnabled = previousRedis, previousMemory
+	})
+	return database
+}
+
+func setInviteRebateCompliance(t *testing.T, confirmed bool) {
+	t.Helper()
+	paymentSetting := operation_setting.GetPaymentSetting()
+	originalConfirmed := paymentSetting.ComplianceConfirmed
+	originalVersion := paymentSetting.ComplianceTermsVersion
+	paymentSetting.ComplianceConfirmed = confirmed
+	if confirmed {
+		paymentSetting.ComplianceTermsVersion = operation_setting.CurrentComplianceTermsVersion
+	}
+	t.Cleanup(func() {
+		paymentSetting.ComplianceConfirmed = originalConfirmed
+		paymentSetting.ComplianceTermsVersion = originalVersion
+	})
+}
+
+// The rebate percentage is a plain number, so every value outside [0, 100] -
+// including the ones a float parser accepts - must be rejected before it
+// reaches the stored option.
+func TestUpdateOptionRejectsInvalidInviteRechargeRebatePercent(t *testing.T) {
+	database := inviteRebateOptionDB(t)
+	setInviteRebateCompliance(t, true)
+	originalPercent := common.InviteRechargeRebatePercent
+	t.Cleanup(func() { common.InviteRechargeRebatePercent = originalPercent })
+
+	put := func(value any) bool {
+		t.Helper()
+		var response struct{ Success bool }
+		modelManagementRequest(t, UpdateOption, http.MethodPut, "/api/option/", OptionUpdateRequest{Key: "InviteRechargeRebatePercent", Value: value}, &response)
+		return response.Success
+	}
+	storedValue := func() string {
+		t.Helper()
+		var saved model.Option
+		require.NoError(t, database.Where(&model.Option{Key: "InviteRechargeRebatePercent"}).First(&saved).Error)
+		return saved.Value
+	}
+
+	require.True(t, put(10))
+	require.True(t, put(12.5))
+	assert.Equal(t, "12.5", storedValue())
+	assert.Equal(t, 12.5, common.InviteRechargeRebatePercent)
+	require.True(t, put(100))
+	assert.Equal(t, "100", storedValue())
+
+	for _, value := range []any{-1, 101, 100.1, "NaN", "Inf", "-Inf", "abc", "", "  "} {
+		assert.False(t, put(value), "value %v must be rejected", value)
+		assert.Equal(t, "100", storedValue(), "an invalid save must preserve the previous value")
+		assert.Equal(t, 100.0, common.InviteRechargeRebatePercent, "an invalid save must not change the runtime value")
+	}
+}
+
+// A non-zero rebate is an invitation reward, so it stays behind the payment
+// compliance gate until the operator confirms the terms.
+func TestUpdateOptionRequiresComplianceForNonZeroInviteRechargeRebate(t *testing.T) {
+	database := inviteRebateOptionDB(t)
+	setInviteRebateCompliance(t, false)
+	originalPercent := common.InviteRechargeRebatePercent
+	t.Cleanup(func() { common.InviteRechargeRebatePercent = originalPercent })
+
+	var response struct{ Success bool }
+	modelManagementRequest(t, UpdateOption, http.MethodPut, "/api/option/", OptionUpdateRequest{Key: "InviteRechargeRebatePercent", Value: 10}, &response)
+	assert.False(t, response.Success)
+
+	var saved model.Option
+	err := database.Where(&model.Option{Key: "InviteRechargeRebatePercent"}).First(&saved).Error
+	if err == nil {
+		assert.NotEqual(t, "10", saved.Value)
+	} else {
+		require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	}
+
+	// Zero is not a reward, so it can always be saved.
+	modelManagementRequest(t, UpdateOption, http.MethodPut, "/api/option/", OptionUpdateRequest{Key: "InviteRechargeRebatePercent", Value: 0}, &response)
+	assert.True(t, response.Success)
+	require.NoError(t, database.Where(&model.Option{Key: "InviteRechargeRebatePercent"}).First(&saved).Error)
+	assert.Equal(t, "0", saved.Value)
 }

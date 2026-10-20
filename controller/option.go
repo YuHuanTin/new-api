@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"slices"
 	"sort"
@@ -197,7 +198,7 @@ func UpdateOption(c *gin.Context) {
 		option.Value = fmt.Sprintf("%v", option.Value)
 	}
 	switch option.Key {
-	case "QuotaForInviter", "QuotaForInvitee":
+	case "QuotaForInviter", "QuotaForInvitee", "InviteRechargeRebatePercent":
 		if isPositiveOptionValue(option.Value.(string)) && !operation_setting.IsPaymentComplianceConfirmed() {
 			common.ApiErrorT(c, "Payment, redemption, subscription, and invitation reward features are disabled. The administrator must confirm compliance terms before enabling them.")
 			return
@@ -262,6 +263,12 @@ func UpdateOption(c *gin.Context) {
 	case "theme.frontend":
 		if option.Value != "default" {
 			common.ApiErrorT(c, "The Classic frontend has been removed. The theme can only be set to default")
+			return
+		}
+	case "InviteRechargeRebatePercent":
+		rebatePercent, parseErr := strconv.ParseFloat(strings.TrimSpace(option.Value.(string)), 64)
+		if parseErr != nil || math.IsNaN(rebatePercent) || math.IsInf(rebatePercent, 0) || rebatePercent < 0 || rebatePercent > 100 {
+			common.ApiErrorT(c, "The invitation recharge rebate percentage must be between 0 and 100")
 			return
 		}
 	case "GroupRatio":

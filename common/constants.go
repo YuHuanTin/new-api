@@ -130,6 +130,11 @@ var TelegramBotName = ""
 var QuotaForNewUser = 0
 var QuotaForInviter = 0
 var QuotaForInvitee = 0
+
+// InviteRechargeRebatePercent is the share of an invited user's recharge that
+// is credited to the inviter, in percent. Zero disables the rebate.
+var InviteRechargeRebatePercent float64
+
 var ChannelDisableThreshold = 5.0
 var AutomaticDisableChannelEnabled = false
 var AutomaticEnableChannelEnabled = false

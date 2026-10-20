@@ -182,6 +182,7 @@ func Redeem(key string, userId int) (quota int, err error) {
 	}
 	syncCreditUserQuotaCache(userId, redemption.Quota, common.LogText("redemption"))
 	RecordLog(userId, LogTypeTopup, common.NewMessage("Topped up {{quota}} with a redemption code, code ID {{id}}", map[string]any{"quota": logger.FormatQuota(redemption.Quota), "id": redemption.Id}))
+	creditInviteRechargeRebate(userId, redemption.Quota)
 	return redemption.Quota, nil
 }
 

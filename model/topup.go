@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
@@ -115,6 +116,61 @@ func creditTopUpQuota(tx *gorm.DB, userId int, creditedQuota int, updates map[st
 		return gorm.ErrRecordNotFound
 	}
 	return ErrTopUpQuotaLimitExceeded
+}
+
+// creditInviteRechargeRebate credits the first-level inviter with the
+// configured share of the quota an invited user tops up or redeems. Like the
+// registration invitation reward it runs after the top-up committed and never
+// fails it, so a rebate problem cannot cost the invitee their paid quota.
+func creditInviteRechargeRebate(inviteeId int, creditedQuota int) {
+	percent := common.InviteRechargeRebatePercent
+	if percent <= 0 || creditedQuota <= 0 {
+		return
+	}
+	if !operation_setting.IsPaymentComplianceConfirmed() {
+		return
+	}
+
+	var invitee User
+	if err := DB.Select("id", "inviter_id").Where("id = ?", inviteeId).First(&invitee).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			common.SysError(common.LogText("invitation recharge rebate skipped: %s", err.Error()))
+		}
+		return
+	}
+	if invitee.InviterId <= 0 || invitee.InviterId == inviteeId {
+		return
+	}
+
+	// A top-up derived credit uses the wallet quota domain, the single-request int32 bound would cap a large rebate.
+	rebateQuota, err := common.WalletQuotaFromDecimalStrict(
+		decimal.NewFromInt(int64(creditedQuota)).Mul(decimal.NewFromFloat(percent)).Div(decimal.NewFromInt(100)),
+	)
+	if err != nil {
+		common.SysError(common.LogText("invitation recharge rebate skipped: %s", err.Error()))
+		return
+	}
+	if rebateQuota <= 0 {
+		return
+	}
+
+	// The 64-bit invitation quota counters must not overflow.
+	result := DB.Model(&User{}).
+		Where("id = ? AND aff_quota <= ? AND aff_history <= ?", invitee.InviterId, common.MaxWalletQuota-rebateQuota, common.MaxWalletQuota-rebateQuota).
+		Updates(map[string]any{
+			"aff_quota":   gorm.Expr("aff_quota + ?", rebateQuota),
+			"aff_history": gorm.Expr("aff_history + ?", rebateQuota),
+		})
+	if result.Error != nil {
+		common.SysError(common.LogText("invitation recharge rebate skipped: %s", result.Error.Error()))
+		return
+	}
+	if result.RowsAffected == 0 {
+		common.SysLog(common.LogText("invitation recharge rebate skipped, inviter %d has no room for %d quota", invitee.InviterId, rebateQuota))
+		return
+	}
+
+	RecordLog(invitee.InviterId, LogTypeSystem, common.NewMessage("Invitation recharge rebate {{quota}}", map[string]any{"quota": logger.FormatQuota(rebateQuota)}))
 }
 
 func (topUp *TopUp) Update() error {
@@ -230,6 +286,7 @@ func RechargeEpay(tradeNo string, actualPaymentMethod string, callerIp string) (
 
 	common.SysLog(common.LogText("Epay top-up succeeded trade_no=%s user_id=%d quota_to_add=%d money=%.2f", topUp.TradeNo, topUp.UserId, quotaToAdd, topUp.Money))
 	RecordTopupLog(topUp.UserId, common.NewMessage("Online top-up succeeded, amount added: {{quota}}, payment amount: {{amount}}", map[string]any{"quota": logger.FormatQuota(quotaToAdd), "amount": fmt.Sprintf("%f", topUp.Money)}), callerIp, topUp.PaymentMethod, PaymentProviderEpay)
+	creditInviteRechargeRebate(topUp.UserId, quotaToAdd)
 	return false, nil
 }
 
@@ -285,6 +342,7 @@ func Recharge(referenceId string, customerId string, callerIp string) (err error
 	syncCreditUserQuotaCache(topUp.UserId, quota, common.LogText("stripe topup"))
 
 	RecordTopupLog(topUp.UserId, common.NewMessage("Online top-up succeeded, amount added: {{quota}}, payment amount: {{amount}}", map[string]any{"quota": logger.FormatQuota(quota), "amount": topUp.Amount}), callerIp, topUp.PaymentMethod, PaymentMethodStripe)
+	creditInviteRechargeRebate(topUp.UserId, quota)
 
 	return nil
 }
@@ -520,6 +578,7 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 	// 事务外记录日志，避免阻塞
 	syncCreditUserQuotaCache(userId, quotaToAdd, common.LogText("manual topup"))
 	RecordTopupLog(userId, common.NewMessage("Administrator completed the order, amount added: {{quota}}, payment amount: {{amount}}", map[string]any{"quota": logger.FormatQuota(quotaToAdd), "amount": fmt.Sprintf("%f", payMoney)}), callerIp, paymentMethod, "admin")
+	creditInviteRechargeRebate(userId, quotaToAdd)
 	return nil
 }
 func RechargeCreem(referenceId string, customerEmail string, customerName string, callerIp string) (err error) {
@@ -590,6 +649,7 @@ func RechargeCreem(referenceId string, customerEmail string, customerName string
 	syncCreditUserQuotaCache(topUp.UserId, quota, common.LogText("creem topup"))
 
 	RecordTopupLog(topUp.UserId, common.NewMessage("{{provider}} top-up succeeded, amount added: {{quota}}, payment amount: {{amount}}", map[string]any{"provider": "Creem", "quota": quota, "amount": fmt.Sprintf("%.2f", topUp.Money)}), callerIp, topUp.PaymentMethod, PaymentMethodCreem)
+	creditInviteRechargeRebate(topUp.UserId, quota)
 
 	return nil
 }
@@ -646,6 +706,7 @@ func RechargeWaffo(tradeNo string, callerIp string) (err error) {
 		return errors.New("top-up failed")
 	}
 	syncCreditUserQuotaCache(topUp.UserId, quotaToAdd, common.LogText("waffo topup"))
+	creditInviteRechargeRebate(topUp.UserId, quotaToAdd)
 
 	if quotaToAdd > 0 {
 		RecordTopupLog(topUp.UserId, common.NewMessage("{{provider}} top-up succeeded, amount added: {{quota}}, payment amount: {{amount}}", map[string]any{"provider": "Waffo", "quota": logger.FormatQuota(quotaToAdd), "amount": fmt.Sprintf("%.2f", topUp.Money)}), callerIp, topUp.PaymentMethod, PaymentMethodWaffo)
@@ -706,6 +767,7 @@ func RechargeWaffoPancake(tradeNo string) (err error) {
 		return errors.New("top-up failed")
 	}
 	syncCreditUserQuotaCache(topUp.UserId, quotaToAdd, common.LogText("waffo pancake topup"))
+	creditInviteRechargeRebate(topUp.UserId, quotaToAdd)
 
 	if quotaToAdd > 0 {
 		RecordLog(topUp.UserId, LogTypeTopup, common.NewMessage("{{provider}} top-up succeeded, amount added: {{quota}}, payment amount: {{amount}}", map[string]any{"provider": "Waffo Pancake", "quota": logger.FormatQuota(quotaToAdd), "amount": fmt.Sprintf("%.2f", topUp.Money)}))

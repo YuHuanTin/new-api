@@ -55,6 +55,13 @@ const quotaSchema = z.object({
   QuotaForNewUser: z.coerce.number().min(0),
   QuotaForInviter: z.coerce.number().min(0),
   QuotaForInvitee: z.coerce.number().min(0),
+  InviteRechargeRebatePercent: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.coerce
+      .number({ error: () => i18next.t('Please enter a valid number') })
+      .min(0, { error: () => i18next.t('Must be greater than or equal to 0') })
+      .max(100, { error: () => i18next.t('Must be less than or equal to 100') })
+  ),
   TopUpLink: z.string(),
   quota_setting: z.object({
     enable_free_model_pre_consume: z.boolean(),
@@ -273,6 +280,35 @@ export function QuotaSettingsSection({
                     {t('Quota given to invited users ({{formattedQuota}})', {
                       formattedQuota: formatQuotaInputValue(field.value),
                     })}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='InviteRechargeRebatePercent'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Invitation Recharge Rebate (%)')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={0}
+                      max={100}
+                      step='any'
+                      value={field.value ?? ''}
+                      onChange={field.onChange}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Percentage of the quota an invited user tops up or redeems that is credited to the inviter as invitation quota (first level only). Set to 0 to disable.'
+                    )}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
