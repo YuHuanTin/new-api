@@ -50,7 +50,7 @@ describe('common usage log token column', () => {
     render(<TokenColumnView log={log} />)
 
     expect(screen.getByText('1,265 / 348')).toBeVisible()
-    expect(screen.getByText('Cache↓ 47,872')).toBeVisible()
+    expect(screen.getByText('Cache R 47,872')).toBeVisible()
   })
 
   it('shows Claude input tokens as reported without subtracting cache reads', () => {
@@ -72,7 +72,79 @@ describe('common usage log token column', () => {
     render(<TokenColumnView log={log} />)
 
     expect(screen.getByText('2 / 9,255')).toBeVisible()
-    expect(screen.getByText('Cache↓ 46,137')).toBeVisible()
-    expect(screen.getByText('↑ 3,736')).toBeVisible()
+    expect(screen.getByText('Cache R 46,137')).toBeVisible()
+    expect(screen.getByText('W 3,736')).toBeVisible()
+  })
+
+  it('shows the cache hit rate under the token counts', () => {
+    const log = usageLogSchema.parse({
+      id: 1,
+      user_id: 1,
+      created_at: 1,
+      type: 2,
+      content: '',
+      prompt_tokens: 49137,
+      completion_tokens: 348,
+      other: JSON.stringify({ cache_tokens: 47872 }),
+    })
+
+    render(<TokenColumnView log={log} />)
+
+    expect(screen.getByLabelText('Cache Rate')).toBeVisible()
+    expect(screen.getByText('97.4%')).toBeVisible()
+  })
+
+  it('shows an empty cache bar when the request read nothing from cache', () => {
+    const log = usageLogSchema.parse({
+      id: 1,
+      user_id: 1,
+      created_at: 1,
+      type: 2,
+      content: '',
+      prompt_tokens: 1200,
+      completion_tokens: 30,
+      other: JSON.stringify({ cache_tokens: 0 }),
+    })
+
+    render(<TokenColumnView log={log} />)
+
+    expect(screen.getByLabelText('Cache Rate')).toBeVisible()
+    expect(screen.getByText('0.0%')).toBeVisible()
+  })
+
+  it('omits the cache bar when the log reports no cache usage at all', () => {
+    const log = usageLogSchema.parse({
+      id: 1,
+      user_id: 1,
+      created_at: 1,
+      type: 2,
+      content: '',
+      prompt_tokens: 1200,
+      completion_tokens: 30,
+      other: '{}',
+    })
+
+    render(<TokenColumnView log={log} />)
+
+    expect(screen.queryByLabelText('Cache Rate')).not.toBeInTheDocument()
+  })
+})
+
+describe('common usage log cache bar on error logs', () => {
+  it('does not show the cache bar on an error log', () => {
+    const log = usageLogSchema.parse({
+      id: 1,
+      user_id: 1,
+      created_at: 1,
+      type: 5,
+      content: 'upstream failed',
+      prompt_tokens: 1200,
+      completion_tokens: 30,
+      other: JSON.stringify({ cache_tokens: 900 }),
+    })
+
+    render(<TokenColumnView log={log} />)
+
+    expect(screen.queryByLabelText('Cache Rate')).not.toBeInTheDocument()
   })
 })

@@ -355,6 +355,40 @@ export function getDisplayInputTokens(
   return log.prompt_tokens - (other?.cache_tokens || 0)
 }
 
+/**
+ * 缓存命中率：缓存读取占输入 token 的百分比，和服务端统计卡片的口径一致
+ * Claude 的 prompt_tokens 不含缓存，输入要把缓存读写加回来；缓存写入不算命中
+ * 日志报告了缓存字段就返回数字（0 也返回，进度条显示空轨道）；日志没有缓存
+ * 信息时返回 null，调用方据此不显示进度条
+ */
+export function getLogCacheRate(
+  log: { prompt_tokens: number },
+  other: LogOtherData | null | undefined
+): number | null {
+  if (!other) return null
+  const reportsCache =
+    other.cache_tokens !== undefined ||
+    other.image_cache_tokens !== undefined ||
+    other.cache_creation_tokens !== undefined ||
+    other.cache_creation_tokens_5m !== undefined ||
+    other.cache_creation_tokens_1h !== undefined
+  if (!reportsCache) return null
+  const cacheRead = Math.max(
+    other.cache_tokens || 0,
+    other.image_cache_tokens || 0
+  )
+  const cacheWrite =
+    (other.cache_creation_tokens_5m || 0) +
+      (other.cache_creation_tokens_1h || 0) ||
+    other.cache_creation_tokens ||
+    0
+  const promptTokens = Math.max(log.prompt_tokens || 0, 0)
+  const inputTokens =
+    other.claude === true ? promptTokens + cacheRead + cacheWrite : promptTokens
+  if (inputTokens <= 0) return null
+  return Math.min(100, (cacheRead / inputTokens) * 100)
+}
+
 export function getTieredBillingSummary(
   other: LogOtherData | null
 ): TieredBillingSummary | null {

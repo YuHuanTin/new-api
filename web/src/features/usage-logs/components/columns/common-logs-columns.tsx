@@ -30,6 +30,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { Progress } from '@/components/ui/progress'
 import {
   Tooltip,
   TooltipContent,
@@ -48,22 +49,25 @@ import {
 import { pluginUsageSchema } from '@/features/pricing/lib/plugin-pricing'
 import { taskUsageUnitLabel } from '@/features/pricing/lib/task-price-display'
 import type { BillingUsageSchema } from '@/features/pricing/types'
+import { toIntlLocale } from '@/i18n/languages'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import {
   formatLogQuota,
+  formatPercentOneDecimal,
   formatRatioCompact,
   formatTimestampToDate,
 } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
-import { LOG_TYPE_ALL_VALUE } from '../../constants'
+import { LOG_TYPE_ALL_VALUE, LOG_TYPE_ENUM } from '../../constants'
 import type { UsageLog } from '../../data/schema'
 import {
   formatModelName,
   decodeBillingExprB64,
   getDisplayInputTokens,
+  getLogCacheRate,
   getTieredBillingSummary,
   hasAnyCacheTokens,
   parseLogOther,
@@ -352,8 +356,9 @@ export function useCommonLogsColumns(
   isRoot: boolean,
   showBillingSource = false
 ): ColumnDef<UsageLog>[] {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const currency = useSystemConfigStore((state) => state.config.currency)
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   return useMemo(() => {
     const columns: ColumnDef<UsageLog>[] = [
       {
@@ -745,6 +750,11 @@ export function useCommonLogsColumns(
           const cacheWriteTokens = hasSplitCache
             ? cacheWrite5m + cacheWrite1h
             : other?.cache_creation_tokens || 0
+          // 只有成功的消耗日志才看缓存率；错误请求即使带了 token 也不显示
+          const cacheRate =
+            log.type === LOG_TYPE_ENUM.CONSUME
+              ? getLogCacheRate(log, other)
+              : null
 
           return (
             <div className='flex flex-col gap-0.5'>
@@ -756,14 +766,26 @@ export function useCommonLogsColumns(
                 <div className='flex items-center gap-1 text-[11px]'>
                   {cacheReadTokens > 0 && (
                     <span className='text-muted-foreground/60'>
-                      {t('Cache')}↓ {cacheReadTokens.toLocaleString()}
+                      {t('Cache')} R {cacheReadTokens.toLocaleString()}
                     </span>
                   )}
                   {cacheWriteTokens > 0 && (
                     <span className='text-muted-foreground/60'>
-                      ↑ {cacheWriteTokens.toLocaleString()}
+                      W {cacheWriteTokens.toLocaleString()}
                     </span>
                   )}
+                </div>
+              )}
+              {cacheRate !== null && (
+                <div className='flex items-center gap-1.5'>
+                  <Progress
+                    value={cacheRate}
+                    aria-label={t('Cache Rate')}
+                    className='w-20 shrink-0 gap-0 [&>[data-slot=progress-track]]:h-0.5'
+                  />
+                  <span className='text-muted-foreground/60 text-[10px] tabular-nums'>
+                    {formatPercentOneDecimal(cacheRate, locale)}
+                  </span>
                 </div>
               )}
             </div>
@@ -917,5 +939,5 @@ export function useCommonLogsColumns(
     }))
     // Log formatters read currency settings from the store.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, isAdmin, isRoot, showBillingSource, currency])
+  }, [t, locale, isAdmin, isRoot, showBillingSource, currency])
 }

@@ -224,7 +224,7 @@ it('keeps input, output and cache quantities readable without empty metric cells
   expect(screen.getByText('Input').lastElementChild).toHaveTextContent('900')
   expect(screen.getByText('Output')).toBeVisible()
   expect(screen.getByText(/300/)).toBeVisible()
-  expect(screen.getByText('Cache ↑ 200')).toBeVisible()
+  expect(screen.getByText('Cache W 200')).toBeVisible()
 })
 
 it('shows Claude input tokens as reported without subtracting cache reads', () => {

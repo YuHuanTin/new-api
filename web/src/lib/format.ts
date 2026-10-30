@@ -39,6 +39,18 @@ export function formatNumber(
   )
 }
 
+/** 固定保留一位小数的百分比，例如 `97.4%`、`0.0%`。 */
+export function formatPercentOneDecimal(
+  value: number | null | undefined,
+  locales?: Intl.LocalesArgument
+): string {
+  if (value == null || Number.isNaN(value as number)) return '-'
+  return `${Intl.NumberFormat(locales, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(value as number)}%`
+}
+
 export function formatCompactNumber(
   value: number | null | undefined,
   locales?: Intl.LocalesArgument
