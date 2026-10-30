@@ -76,6 +76,10 @@ notify.quota_low_bark: "{{.Prompt}}，剩余额度：{{.Quota}}，请及时充�
 notify.quota_low_gotify: "{{.Prompt}}，当前剩余额度为 {{.Quota}}，请及时充值。"
 notify.quota_low_email: "{{.Prompt}}，当前剩余额度为 {{.Quota}}，为了不影响您的使用，请及时充值。<br/>充值链接：<a href='{{.Link}}'>{{.Link}}</a>"
 
+# cyber_policy 拒绝的通知，发给被清退的账号
+notify.cyber_ban_subject: "您的账号已被禁用"
+notify.cyber_ban_content: "您在 {{.System}} 的账号已被禁用：{{.Minutes}} 分钟内触发了 {{.Count}} 次 cyber policy 拒绝（请求被上游的内容策略拦截）。如果您认为这是误判，请联系站点管理员恢复账号"
+
 # Channel notices sent to administrators who receive them and to model update watchers
 channel.notify_disabled_subject: "通道「{{.Name}}」（#{{.Id}}）已被禁用"
 channel.notify_disabled_content: "通道「{{.Name}}」（#{{.Id}}）已被禁用，原因：{{.Reason}}"

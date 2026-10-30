@@ -148,7 +148,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// 收尾时把最终错误留给 cyber 处置判断：非流式请求没有流事件可用，
 		// 只能从这里拿到错误码
 		relayInfo.LastError = resultErr
-		service.RecordCyberPolicyViolation(c, relayInfo)
+		service.RecordCyberPolicyViolation(relayInfo)
 		if recovered != nil {
 			panic(recovered)
 		}

@@ -95,6 +95,12 @@ const (
 	MsgNotifyQuotaLowEmail             = "notify.quota_low_email"
 )
 
+// cyber_policy 拒绝的清退通知，发给被禁用账号的用户
+const (
+	MsgNotifyCyberBanSubject = "notify.cyber_ban_subject"
+	MsgNotifyCyberBanContent = "notify.cyber_ban_content"
+)
+
 // Channel notices sent to administrators who receive them and to model update
 // watchers
 const (
