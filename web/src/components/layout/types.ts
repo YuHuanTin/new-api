@@ -29,6 +29,11 @@ type BaseNavItem = {
   activeUrls?: (LinkProps['to'] | (string & {}))[]
   configUrls?: (LinkProps['to'] | (string & {}))[]
   /**
+   * Extra classes for the sidebar button of this item. Use it to make an
+   * entry stand out from the rest of the group
+   */
+  className?: string
+  /**
    * Minimum role required to see this item in the sidebar. When set, the item
    * is hidden for users whose role is below this threshold (see
    * `useSidebarView`). Route-level guards still enforce access independently.

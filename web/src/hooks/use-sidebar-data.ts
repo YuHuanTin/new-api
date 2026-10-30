@@ -176,12 +176,16 @@ export function useSidebarData(): SidebarData {
             url: '/system-settings/billing/model-pricing',
             icon: DollarSign,
             requiredRole: ROLE.SUPER_ADMIN,
+            className:
+              'ring-1 ring-primary/40 hover:ring-primary/70 data-active:ring-primary',
           },
           {
             title: t('Group Pricing'),
             url: '/system-settings/billing/group-pricing',
             icon: Tags,
             requiredRole: ROLE.SUPER_ADMIN,
+            className:
+              'ring-1 ring-primary/40 hover:ring-primary/70 data-active:ring-primary',
           },
           {
             title: t('System Settings'),
