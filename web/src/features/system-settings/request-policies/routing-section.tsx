@@ -174,7 +174,7 @@ function AffinitySettings() {
   })
   return (
     <SettingsCard
-      title={t('Session defaults')}
+      title={t('Session defaults (only applied when set in session rules)')}
       description={t('Rules can inherit or override these defaults.')}
       className='shadow-none'
     >

@@ -38,7 +38,7 @@ const POLICY_SECTIONS = [
   },
   {
     id: 'routing',
-    titleKey: 'Sessions and retries',
+    titleKey: 'Sessions and retries (affinity)',
     build: () => <RoutingPolicySection />,
   },
   {
