@@ -217,6 +217,9 @@ type RelayInfo struct {
 	// the request boundary, independently of billing success or failure.
 	PerformanceOutputTokens      int64
 	PerformanceBusinessRejection bool
+	// CyberPolicyViolation 标记这次请求被上游以 cyber_policy 拒绝。异常管理
+	// 用它统计窗口内的拒绝次数，超过阈值就清退账号
+	CyberPolicyViolation bool
 
 	// convOptions caches the converter settings snapshot (see ConvOptions).
 	convOptions *convmeta.Options

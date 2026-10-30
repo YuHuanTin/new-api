@@ -123,11 +123,28 @@ func ResponsesStreamEventToChatChunks(event *dto.ResponsesStreamResponse, state 
 		}
 		chunks = append(chunks, state.finalize(response)...)
 		return chunks, nil
-	case responsesEventFailed, responsesEventError:
-		return nil, fmt.Errorf("responses stream error: %s", event.Type)
+	case responsesEventFailed, responsesEventError, responsesEventBareError:
+		return nil, fmt.Errorf("responses stream error: %s", responsesStreamErrorMessage(event))
 	default:
 		return nil, nil
 	}
+}
+
+// responsesStreamErrorMessage 返回失败事件的上游错误信息。错误信息可能放在事件
+// 顶层，也可能放在事件携带的错误对象里
+func responsesStreamErrorMessage(event *dto.ResponsesStreamResponse) string {
+	if event == nil {
+		return ""
+	}
+	if message := strings.TrimSpace(event.Message); message != "" {
+		return message
+	}
+	if oaiErr := event.GetOpenAIError(); oaiErr != nil {
+		if message := strings.TrimSpace(oaiErr.Message); message != "" {
+			return message
+		}
+	}
+	return event.Type
 }
 
 func FinalizeResponsesToChatStream(state *ResponsesToChatStreamState) []dto.ChatCompletionsStreamResponse {

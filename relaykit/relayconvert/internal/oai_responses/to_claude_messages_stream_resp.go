@@ -161,10 +161,10 @@ func (s *ResponsesToClaudeStreamState) ConvertChunk(event *dto.ResponsesStreamRe
 	case responsesEventCompleted, responsesEventDone, responsesEventIncomplete:
 		responses, err := s.finish(event.Response, estimatedInputTokens)
 		return responses, s.Usage, err
-	case responsesEventFailed, responsesEventError:
+	case responsesEventFailed, responsesEventError, responsesEventBareError:
 		message := strings.TrimSpace(event.Message)
 		if message == "" {
-			message = event.Type
+			message = responsesStreamErrorMessage(event)
 		}
 		return nil, s.Usage, fmt.Errorf("responses stream error: %s", message)
 	default:

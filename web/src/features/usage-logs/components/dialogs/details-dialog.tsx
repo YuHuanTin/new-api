@@ -1284,6 +1284,18 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 value={other.stream_status.end_reason}
               />
             )}
+            {other.stream_status.error_code && (
+              <DetailRow
+                label={t('Upstream Error Code')}
+                value={other.stream_status.error_code}
+              />
+            )}
+            {other.stream_status.error_type && (
+              <DetailRow
+                label={t('Upstream Error Type')}
+                value={other.stream_status.error_type}
+              />
+            )}
             {(other.stream_status.error_count ?? 0) > 0 && (
               <DetailRow
                 label={t('Soft Errors')}

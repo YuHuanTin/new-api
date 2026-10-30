@@ -152,6 +152,9 @@ type ChatCompletionsStreamResponse struct {
 	SystemFingerprint *string                               `json:"system_fingerprint"`
 	Choices           []ChatCompletionsStreamResponseChoice `json:"choices"`
 	Usage             *Usage                                `json:"usage"`
+	// Error 是上游在流里直接给出的错误对象。OpenAI 兼容网关（例如 sub2api）
+	// 转发 cyber_policy 拒绝时就是这么发的，这里丢掉就等于把拒绝弄丢了
+	Error any `json:"error,omitempty"`
 }
 
 func (c *ChatCompletionsStreamResponse) IsFinished() bool {
@@ -625,6 +628,9 @@ type ResponsesStreamResponse struct {
 	SummaryIndex *int                           `json:"summary_index,omitempty"`
 	ItemID       string                         `json:"item_id,omitempty"`
 	Part         *ResponsesReasoningSummaryPart `json:"part,omitempty"`
+	// Error 是裸 error 事件携带的错误对象。上游网关把错误放在事件旁边，
+	// 这里丢掉就等于把事件报告的拒绝弄丢了
+	Error any `json:"error,omitempty"`
 }
 
 // GetOpenAIError 从动态错误类型中提取OpenAIError结构

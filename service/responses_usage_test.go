@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -120,7 +121,9 @@ func TestObserveResponsesOutcomeRecordsProtocolFacts(t *testing.T) {
 		wantType    string
 		wantIncompl string
 	}{
-		{"flat sse error", `{"type":"error","code":"context_length_exceeded","message":"too long"}`, relaycommon.ResponseOutcomeFailed, "context_length_exceeded", "", ""},
+		// 上游只给 code 不给 type 时，错误类型记成 upstream_error，和 new-api
+		// 发给客户端的错误保持一致
+		{"flat sse error", `{"type":"error","code":"context_length_exceeded","message":"too long"}`, relaycommon.ResponseOutcomeFailed, "context_length_exceeded", "upstream_error", ""},
 		{"done with failed status", `{"type":"response.done","response":{"status":"failed","error":{"code":"invalid_api_key","type":"invalid_request_error","message":"bad key"}}}`, relaycommon.ResponseOutcomeFailed, "invalid_api_key", "invalid_request_error", ""},
 		{"incomplete keeps reason", `{"type":"response.incomplete","response":{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}}`, relaycommon.ResponseOutcomeIncomplete, "", "", "max_output_tokens"},
 		{"in progress is not terminal", `{"type":"response.created","response":{"status":"in_progress"}}`, relaycommon.ResponseOutcomeUnknown, "", "", ""},
@@ -137,6 +140,21 @@ func TestObserveResponsesOutcomeRecordsProtocolFacts(t *testing.T) {
 			assert.Equal(t, tc.wantIncompl, outcome.IncompleteReason)
 		})
 	}
+}
+
+// TestAppendStreamStatusRecordsUpstreamErrorCode 覆盖 cyber_policy 拒绝在日志
+// 这一侧的表现：Responses 事件带着上游错误码，日志明细必须把它写出来，让控制台
+// 能叫出拒绝原因，而不是只显示笼统的流错误
+func TestAppendStreamStatusRecordsUpstreamErrorCode(t *testing.T) {
+	info := &relaycommon.RelayInfo{IsStream: true, StreamStatus: relaycommon.NewStreamStatus()}
+	info.StreamStatus.MarkFailed("cyber_policy", "", 0)
+
+	other := model.NewLogOther()
+	appendStreamStatus(info, other)
+
+	streamInfo, ok := other.Snapshot()["stream_status"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "cyber_policy", streamInfo["error_code"])
 }
 
 func TestResponsesUsageAccumulatorDisconnectBillsCompletedImage(t *testing.T) {

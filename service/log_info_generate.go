@@ -129,6 +129,10 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	appendBillingInfo(relayInfo, other)
 	appendParamOverrideInfo(relayInfo, other)
 	appendStreamStatus(relayInfo, other)
+	if relayInfo.IsStream && relayInfo.StreamStatus.Failed() {
+		// 失败的流也要留下现场，异常管理里才看得到原始请求和上游响应
+		AppendAnomalyInfo(ctx, other)
+	}
 	return other
 }
 
@@ -158,7 +162,7 @@ func appendStreamStatus(relayInfo *relaycommon.RelayInfo, other *model.LogOther)
 	}
 	ss := relayInfo.StreamStatus
 	status := "ok"
-	if !ss.IsNormalEnd() || ss.HasErrors() || ss.ResponseFailed() {
+	if ss.Failed() {
 		status = "error"
 	}
 	streamInfo := map[string]any{
@@ -168,6 +172,7 @@ func appendStreamStatus(relayInfo *relaycommon.RelayInfo, other *model.LogOther)
 	if outcome := ss.ResponseOutcome(); outcome != "" {
 		streamInfo["response_status"] = outcome
 	}
+	appendStreamFailureCode(streamInfo, ss, status)
 	if ss.EndError != nil {
 		streamInfo["end_error"] = ss.EndError.Error()
 	}

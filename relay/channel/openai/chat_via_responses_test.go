@@ -270,6 +270,33 @@ func TestOaiChatToResponsesStreamHandlerConvertsSSEOrderAndUsage(t *testing.T) {
 	)
 }
 
+func TestOaiChatToResponsesStreamHandlerKeepsCyberPolicyErrorCode(t *testing.T) {
+	oldMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(oldMode) })
+
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	body := strings.Join([]string{
+		`data: {"error":{"code":"cyber_policy","message":"Request blocked by content policy."}}`,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+
+	c, recorder, resp, info := newResponsesChatTestContext(t, body, true)
+
+	_, apiErr := OaiChatToResponsesStreamHandler(c, info, resp)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, types.ErrorCode("cyber_policy"), apiErr.GetErrorCode())
+
+	got := recorder.Body.String()
+	assert.Contains(t, got, `event: error`)
+	assert.Contains(t, got, `"code":"cyber_policy"`)
+	assert.Contains(t, got, `event: response.failed`)
+}
+
 func TestOaiChatToResponsesStreamHandlerRestoresCodexCustomToolCall(t *testing.T) {
 	oldMode := gin.Mode()
 	gin.SetMode(gin.TestMode)
@@ -321,6 +348,103 @@ func TestOaiChatToResponsesStreamHandlerRestoresCodexCustomToolCall(t *testing.T
 		`event: response.completed`,
 		`"type":"custom_tool_call"`,
 	)
+}
+
+// cyberPolicyFailedEventJSON 复刻 sub2api 上游原样转发的事件：OpenAI 账号用
+// cyber_policy 拒绝请求。上游错误对象只有 code 和 message，没有 type
+const cyberPolicyFailedEventJSON = `{"type":"response.failed","response":{"id":"resp_cyber","model":"gpt-5.1","error":{"code":"cyber_policy","message":"Request blocked by content policy."},"usage":{"input_tokens":11,"output_tokens":3}}}`
+
+// cyberPolicyFailedEvent 是承载 cyberPolicyFailedEventJSON 的 SSE 帧
+const cyberPolicyFailedEvent = "data: " + cyberPolicyFailedEventJSON
+
+// TestOaiResponsesToChatStreamHandlerKeepsCyberPolicyErrorCode 复现 sub2api →
+// new-api 这条路上 cyber_policy 拒绝以 response.failed 事件到达的场景。上游错误
+// 没有 type，转换后仍必须报 cyber_policy，而不是变成通用失败
+func TestOaiResponsesToChatStreamHandlerKeepsCyberPolicyErrorCode(t *testing.T) {
+	oldMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(oldMode) })
+
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	body := strings.Join([]string{
+		`data: {"type":"response.created","response":{"id":"resp_cyber","model":"gpt-5.1","created_at":1710000000}}`,
+		cyberPolicyFailedEvent,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+
+	c, recorder, resp, info := newResponsesChatTestContext(t, body, true)
+
+	_, apiErr := OaiResponsesToChatStreamHandler(c, info, resp)
+	require.NotNil(t, apiErr, "the cyber_policy rejection must not be swallowed")
+	assert.Equal(t, types.ErrorCode("cyber_policy"), apiErr.GetErrorCode())
+	assert.Contains(t, apiErr.Error(), "Request blocked by content policy.")
+	assert.NotContains(t, recorder.Body.String(), "cyber_policy")
+}
+
+// TestOaiResponsesToChatStreamHandlerWritesCyberPolicyAsSSEErrorFrame 覆盖文本
+// 已经发给客户端之后才发生同样拒绝的场景。失败必须以客户端能解析的 SSE 错误帧
+// 送达，而不是把裸 JSON 塞进事件流。这次请求仍按已计费的部分成功结算，所以
+// handler 返回用量而不是错误
+func TestOaiResponsesToChatStreamHandlerWritesCyberPolicyAsSSEErrorFrame(t *testing.T) {
+	oldMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(oldMode) })
+
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	body := strings.Join([]string{
+		`data: {"type":"response.created","response":{"id":"resp_cyber","model":"gpt-5.1","created_at":1710000000}}`,
+		`data: {"type":"response.output_text.delta","delta":"partial"}`,
+		cyberPolicyFailedEvent,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+
+	c, recorder, resp, info := newResponsesChatTestContext(t, body, true)
+
+	usage, apiErr := OaiResponsesToChatStreamHandler(c, info, resp)
+	got := recorder.Body.String()
+	assert.Nil(t, apiErr, "a failure after output was delivered settles as a billed partial success")
+	require.NotNil(t, usage)
+	assert.NotContains(t, got, "\n{\"error\"", "a bare JSON error object must not be spliced into the SSE stream")
+	assert.Contains(t, got, "data: ")
+	assert.Contains(t, got, "cyber_policy")
+	assert.Contains(t, got, "Request blocked by content policy.")
+	assert.Equal(t, "cyber_policy", info.StreamStatus.OutcomeSnapshot().ErrorCode)
+}
+
+// TestOaiResponsesToChatStreamHandlerFailsOnBareErrorEvent 覆盖裸 "type":"error"
+// 事件形态。它必须让请求失败，而不是把流当成一次正常的空回复结束
+func TestOaiResponsesToChatStreamHandlerFailsOnBareErrorEvent(t *testing.T) {
+	oldMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(oldMode) })
+
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	body := strings.Join([]string{
+		`data: {"type":"error","error":{"code":"cyber_policy","message":"Request blocked by content policy."}}`,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+
+	c, recorder, resp, info := newResponsesChatTestContext(t, body, true)
+
+	_, apiErr := OaiResponsesToChatStreamHandler(c, info, resp)
+	require.NotNil(t, apiErr, "a bare error event must fail the request instead of completing it")
+	assert.Equal(t, types.ErrorCode("cyber_policy"), apiErr.GetErrorCode())
+
+	got := recorder.Body.String()
+	assert.NotContains(t, got, `"finish_reason":"stop"`, "the stream must not be closed as a normal completion")
+	assert.NotContains(t, got, "data: [DONE]")
 }
 
 func requireOrderedSubstrings(t *testing.T, s string, parts ...string) {

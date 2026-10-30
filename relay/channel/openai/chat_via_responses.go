@@ -37,7 +37,7 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 
-	if oaiError := responsesResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+	if oaiError := responsesResp.GetOpenAIError(); dto.HasOpenAIError(oaiError) {
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 
@@ -105,12 +105,15 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 					finalResponse.Status = []byte(`"incomplete"`)
 				}
 			}
-		case "response.failed", "response.error":
-			if streamResp.Response != nil {
-				if oaiErr := streamResp.Response.GetOpenAIError(); oaiErr != nil && oaiErr.Type != "" {
-					streamErr = types.WithOpenAIError(*oaiErr, http.StatusInternalServerError)
-					break
-				}
+		case "response.failed", "response.error", "error":
+			// 上游错误对象可能只带 code 和 message，没有 type；裸 error 事件更是
+			// 不挂在 response 上，所以错误从整个事件上取，cyber_policy 拒绝才认得出来
+			if oaiErr := streamResp.GetOpenAIError(); dto.HasOpenAIError(oaiErr) {
+				// 流式请求的 HTTP 状态码是 200，真正的拒绝在事件里，留下这一帧
+				// 异常管理才还原得出上游说了什么
+				service.RecordUpstreamStreamBody(c, resp, data)
+				streamErr = upstreamStreamErrorFromUpstream(oaiErr)
+				break
 			}
 			streamErr = types.NewOpenAIError(fmt.Errorf("responses stream error: %s", streamResp.Type), types.ErrorCodeBadResponse, http.StatusInternalServerError)
 		}
@@ -279,15 +282,19 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		if streamResp.Response != nil {
 			info.ObserveResponseModel(streamResp.Response.Model)
 		}
-		if streamResp.Type == "response.error" || streamResp.Type == "response.failed" {
+		service.ObserveResponsesOutcome(info, &streamResp)
+		if streamResp.Type == "response.error" || streamResp.Type == "response.failed" || streamResp.Type == "error" {
 			upstreamFailed = true
 			if streamResp.Response != nil {
 				failedUsage = streamResp.Response.Usage
-				if oaiErr := streamResp.Response.GetOpenAIError(); oaiErr != nil && oaiErr.Type != "" {
-					streamErr = types.WithOpenAIError(*oaiErr, http.StatusInternalServerError)
-					stopStream(sr, streamErr)
-					return
-				}
+			}
+			// 上游错误对象可能只带 code 和 message，所以错误从整个事件上取，
+			// 不再要求必须有 type，这样 cyber_policy 拒绝才认得出来
+			if oaiErr := streamResp.GetOpenAIError(); dto.HasOpenAIError(oaiErr) {
+				streamErr = upstreamStreamErrorFromUpstream(oaiErr)
+				service.RecordUpstreamStreamBody(c, resp, data)
+				stopStream(sr, streamErr)
+				return
 			}
 			streamErr = types.NewOpenAIError(fmt.Errorf("responses stream error: %s", streamResp.Type), types.ErrorCodeBadResponse, http.StatusInternalServerError)
 			stopStream(sr, streamErr)
@@ -340,11 +347,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		}
 		logger.LogError(c, common.LogText("responses stream failed after output was delivered, billing the delivered output: %s", streamErr.Error()))
 		streamErr.SetMessage(common.MessageWithRequestId(streamErr.Error(), c.GetString(common.RequestIdKey)))
-		if info.RelayFormat == types.RelayFormatClaude {
-			c.JSON(streamErr.StatusCode, gin.H{"type": "error", "error": streamErr.ToClaudeError(common.UpstreamAddresses(c)...)})
-		} else {
-			c.JSON(streamErr.StatusCode, gin.H{"error": streamErr.ToOpenAIError(common.UpstreamAddresses(c)...)})
-		}
+		helper.WriteStreamError(c, info.RelayFormat, streamErr)
 		return usage, nil
 	}
 

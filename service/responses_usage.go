@@ -1,7 +1,6 @@
 package service
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -128,16 +127,7 @@ func ObserveResponsesOutcome(info *relaycommon.RelayInfo, event *dto.ResponsesSt
 	}
 	switch {
 	case event.Type == "error" || event.Type == "response.failed" || event.Type == "response.error" || responseStatus == "failed":
-		code, errorType := event.Code, ""
-		if event.Response != nil {
-			if oaiErr := event.Response.GetOpenAIError(); oaiErr != nil {
-				if oaiErr.Code != nil {
-					code = fmt.Sprint(oaiErr.Code)
-				}
-				errorType = oaiErr.Type
-			}
-		}
-		info.StreamStatus.MarkFailed(code, errorType, 0)
+		markResponsesFailure(info, event)
 	case event.Type == "response.incomplete" || responseStatus == "incomplete":
 		reason := ""
 		if event.Response != nil && event.Response.IncompleteDetails != nil {

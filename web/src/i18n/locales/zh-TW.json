@@ -6874,6 +6874,8 @@
     "Upstream authentication": "上游驗證方式",
     "Upstream connection": "上游連線",
     "Upstream did not return reset credit details.": "上游未返回重置次數詳情。",
+    "Upstream Error Code": "上游錯誤碼",
+    "Upstream Error Type": "上游錯誤類型",
     "Upstream JSON response": "上游 JSON 回應",
     "Upstream Model": "上游請求模型",
     "Upstream Model Detection Settings": "偵測上游模型設定",

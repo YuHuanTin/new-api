@@ -69,17 +69,24 @@ export function ChannelQuickOptions(props: ChannelQuickOptionsProps) {
   const id = useId()
   const formContext = useFormContext<ChannelFormValues>()
   const form = props.form ?? formContext
-  const [passthrough, headerOverride, autoBan, modelCheck, websocket] =
-    useWatch({
-      control: form.control,
-      name: [
-        'pass_through_body_enabled',
-        'header_override',
-        'auto_ban',
-        'upstream_model_update_check_enabled',
-        'responses_websocket_enabled',
-      ],
-    })
+  const [
+    passthrough,
+    headerOverride,
+    autoBan,
+    cyberGuard,
+    modelCheck,
+    websocket,
+  ] = useWatch({
+    control: form.control,
+    name: [
+      'pass_through_body_enabled',
+      'header_override',
+      'auto_ban',
+      'cyber_guard_enabled',
+      'upstream_model_update_check_enabled',
+      'responses_websocket_enabled',
+    ],
+  })
   const sensitiveDisabled = props.sensitiveLocked || props.disabled
   const setOption = (
     name:
@@ -147,6 +154,20 @@ export function ChannelQuickOptions(props: ChannelQuickOptionsProps) {
     checked: (autoBan ?? 1) === 1,
     onCheckedChange: (value) =>
       form.setValue('auto_ban', value ? 1 : 0, {
+        shouldDirty: true,
+        shouldValidate: true,
+      }),
+    disabled: props.disabled,
+  })
+  options.push({
+    key: 'cyber-guard',
+    label: t('Cyber Policy Control'),
+    description: t(
+      'Count cyber policy rejections from this channel and disable the account once the threshold is exceeded'
+    ),
+    checked: cyberGuard === true,
+    onCheckedChange: (value) =>
+      form.setValue('cyber_guard_enabled', value, {
         shouldDirty: true,
         shouldValidate: true,
       }),

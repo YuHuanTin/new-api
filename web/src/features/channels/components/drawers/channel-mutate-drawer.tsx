@@ -2287,6 +2287,27 @@ export function ChannelMutateDrawer({
           </FormItem>
         )}
       />
+
+      <FormField
+        control={form.control}
+        name='cyber_guard_enabled'
+        render={({ field }) => (
+          <FormItem className='flex items-center justify-between'>
+            <div className='space-y-0.5'>
+              <FormLabel>{t('Cyber Policy Control')}</FormLabel>
+              <FormDescription>
+                {t(FIELD_DESCRIPTIONS.CYBER_GUARD)}
+              </FormDescription>
+            </div>
+            <FormControl>
+              <Switch
+                checked={field.value === true}
+                onCheckedChange={(checked) => field.onChange(checked)}
+              />
+            </FormControl>
+          </FormItem>
+        )}
+      />
     </div>
   )
 

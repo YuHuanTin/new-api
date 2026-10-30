@@ -35,6 +35,10 @@ type ChannelSettings struct {
 	// TLSInsecureSkipVerify accepts upstream certificates that fail
 	// verification, such as self-signed ones, for this channel only.
 	TLSInsecureSkipVerify bool `json:"tls_insecure_skip_verify,omitempty"`
+	// CyberGuardEnabled counts this channel's cyber_policy rejections and
+	// disables the offending account once the threshold is exceeded. Every
+	// channel starts with it off, so enabling it is always a deliberate act
+	CyberGuardEnabled bool `json:"cyber_guard_enabled,omitempty"`
 }
 
 // BindsTaskPlugin reports whether the channel is bound to the task plugin,

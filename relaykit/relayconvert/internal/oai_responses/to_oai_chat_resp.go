@@ -10,12 +10,15 @@ import (
 )
 
 const (
-	responsesEventCreated                   = "response.created"
-	responsesEventCompleted                 = "response.completed"
-	responsesEventDone                      = "response.done"
-	responsesEventIncomplete                = "response.incomplete"
-	responsesEventFailed                    = "response.failed"
-	responsesEventError                     = "response.error"
+	responsesEventCreated    = "response.created"
+	responsesEventCompleted  = "response.completed"
+	responsesEventDone       = "response.done"
+	responsesEventIncomplete = "response.incomplete"
+	responsesEventFailed     = "response.failed"
+	responsesEventError      = "response.error"
+	// responsesEventBareError 是不挂在 response 上的 error 事件，它的错误码和
+	// 错误信息直接放在事件顶层
+	responsesEventBareError                 = "error"
 	responsesEventOutputTextDelta           = "response.output_text.delta"
 	responsesEventOutputTextAnnotationAdded = "response.output_text.annotation.added"
 	responsesEventOutputItemAdded           = "response.output_item.added"

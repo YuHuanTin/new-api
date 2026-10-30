@@ -6874,6 +6874,8 @@
     "Upstream authentication": "Xác thực với nhà cung cấp",
     "Upstream connection": "Kết nối thượng nguồn",
     "Upstream did not return reset credit details.": "Upstream không trả về chi tiết lượt đặt lại.",
+    "Upstream Error Code": "Mã lỗi thượng nguồn",
+    "Upstream Error Type": "Loại lỗi thượng nguồn",
     "Upstream JSON response": "Phản hồi JSON thượng nguồn",
     "Upstream Model": "Mô hình gửi đến nhà cung cấp",
     "Upstream Model Detection Settings": "Cài đặt phát hiện mô hình nguồn",

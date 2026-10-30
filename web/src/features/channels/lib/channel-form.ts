@@ -272,6 +272,7 @@ export const channelFormSchema = z
     tls_insecure_skip_verify: z.boolean().optional(),
     pass_through_body_enabled: z.boolean().optional(),
     responses_websocket_enabled: z.boolean().optional(),
+    cyber_guard_enabled: z.boolean().optional(),
     system_prompt: z.string().optional(),
     system_prompt_override: z.boolean().optional(),
     // Type-specific settings (stored in settings JSON)
@@ -466,6 +467,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   tls_insecure_skip_verify: false,
   pass_through_body_enabled: false,
   responses_websocket_enabled: false,
+  cyber_guard_enabled: false,
   system_prompt: '',
   system_prompt_override: false,
   // Type-specific settings
@@ -513,6 +515,7 @@ export function transformChannelToFormDefaults(
     tls_insecure_skip_verify: false,
     pass_through_body_enabled: false,
     responses_websocket_enabled: false,
+    cyber_guard_enabled: false,
     system_prompt: '',
     system_prompt_override: false,
   }
@@ -534,6 +537,7 @@ export function transformChannelToFormDefaults(
         http2_connection_shards: protocol === HTTP_PROTOCOL_HTTP1 ? 1 : shards,
         tls_insecure_skip_verify: parsed.tls_insecure_skip_verify === true,
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
+        cyber_guard_enabled: parsed.cyber_guard_enabled === true,
         responses_websocket_enabled:
           parsed.responses_websocket_enabled === true,
         system_prompt: parsed.system_prompt || '',
@@ -671,6 +675,7 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     thinking_to_content: formData.thinking_to_content || false,
     proxy: formData.proxy?.trim() || '',
     pass_through_body_enabled: formData.pass_through_body_enabled === true,
+    cyber_guard_enabled: formData.cyber_guard_enabled === true,
     responses_websocket_enabled:
       supportsResponsesWebSocket(formData.type) &&
       formData.responses_websocket_enabled === true,

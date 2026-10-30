@@ -121,6 +121,10 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var secondLastStreamData string // 保留倒数第二个stream data；部分兼容网关把完整usage放在倒数第二个事件
 	seenStreamToolCalls := make(map[string]struct{})
 	var streamFunctionCallNames []string
+	// upstreamStreamError 记录上游在流里直接给出的错误（例如 cyber_policy
+	// 拒绝）。这类帧不是正常分片，认出来之后整个请求按失败处理，控制台才有
+	// 诊断信息
+	var upstreamStreamError *types.NewAPIError
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if lastStreamData != "" {
@@ -135,6 +139,26 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			}
 
 			lastStreamData = data
+			// 绝大多数分片没有 error 字段，先用字符串检查挡掉，避免在流式热路径上
+			// 为每个分片多解析一次 JSON
+			if strings.Contains(data, `"error"`) {
+				var chunk dto.ChatCompletionsStreamResponse
+				if err := common.UnmarshalJsonStr(data, &chunk); err == nil {
+					if oaiErr := chunk.GetOpenAIError(); oaiErr != nil {
+						upstreamStreamError = upstreamStreamErrorFromUpstream(oaiErr)
+						if hit, _ := dto.DetectCyberPolicy(oaiErr); hit {
+							info.CyberPolicyViolation = true
+						}
+						// 流式请求的 HTTP 状态码是 200，真正的拒绝在事件里，留下这一帧
+						// 异常管理才还原得出上游说了什么
+						service.RecordUpstreamStreamBody(c, resp, data)
+						// 错误帧不再当正常分片下发，交给统一的错误帧流程
+						lastStreamData = ""
+						sr.Stop(upstreamStreamError)
+						return
+					}
+				}
+			}
 			observeStreamChoices(info, data, seenStreamToolCalls, &streamFunctionCallNames)
 			if err := processTokenData(info, data, &responseTextBuilder, &toolCount); err != nil {
 				logger.LogError(c, common.LogText("error processing stream token data: %s", err.Error()))
@@ -142,6 +166,10 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			}
 		}
 	})
+
+	if upstreamStreamError != nil {
+		return nil, upstreamStreamError
+	}
 
 	info.StreamStatus.RequireTerminal()
 
@@ -264,22 +292,26 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		var enterpriseResponse openrouter.OpenRouterEnterpriseResponse
 		err = common.Unmarshal(responseBody, &enterpriseResponse)
 		if err != nil {
+			// 只有失败才留现场：正常响应体不进内存、不落库
+			service.RecordUpstreamResponse(c, resp, responseBody)
 			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 		}
 		if enterpriseResponse.Success {
 			responseBody = enterpriseResponse.Data
 		} else {
 			logger.LogError(c, common.LogText("openrouter enterprise response success=false, data: %s", enterpriseResponse.Data))
+			service.RecordUpstreamResponse(c, resp, responseBody)
 			return nil, types.NewOpenAIError(fmt.Errorf("openrouter response success=false"), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 		}
 	}
 
 	err = common.Unmarshal(responseBody, &simpleResponse)
 	if err != nil {
+		service.RecordUpstreamResponse(c, resp, responseBody)
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 
-	if oaiError := simpleResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+	if oaiError := simpleResponse.GetOpenAIError(); dto.HasOpenAIError(oaiError) {
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 

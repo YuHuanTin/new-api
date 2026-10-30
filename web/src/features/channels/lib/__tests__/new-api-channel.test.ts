@@ -28,6 +28,7 @@ import {
 } from '../../constants'
 import { channelSchema } from '../../types'
 import {
+  buildSettingJSON,
   CHANNEL_FORM_DEFAULT_VALUES,
   channelFormSchema,
   transformChannelToFormDefaults,
@@ -256,5 +257,47 @@ describe('New API channel task plugin extensions', () => {
     expect(JSON.parse(openai.channel.setting ?? '{}')).not.toHaveProperty(
       'task_extend_plugin_keys'
     )
+  })
+
+  // cyber 策略管控按渠道开启，默认全关：只有渠道设置里明确写了才为真
+  test('keeps the per-channel cyber guard switch off by default', () => {
+    const enabled = transformChannelToFormDefaults(
+      channelSchema.parse({
+        id: 1,
+        type: 1,
+        key: 'test-key',
+        name: 'cyber channel',
+        models: 'gpt-5.1',
+        status: 1,
+        created_time: 1,
+        test_time: 0,
+        response_time: 0,
+        balance_updated_time: 0,
+        setting: JSON.stringify({ cyber_guard_enabled: true }),
+      })
+    )
+    expect(enabled.cyber_guard_enabled).toBe(true)
+    expect(JSON.parse(buildSettingJSON(enabled))).toMatchObject({
+      cyber_guard_enabled: true,
+    })
+
+    const plain = transformChannelToFormDefaults(
+      channelSchema.parse({
+        id: 2,
+        type: 1,
+        key: 'test-key',
+        name: 'plain channel',
+        models: 'gpt-5.1',
+        status: 1,
+        created_time: 1,
+        test_time: 0,
+        response_time: 0,
+        balance_updated_time: 0,
+      })
+    )
+    expect(plain.cyber_guard_enabled).toBe(false)
+    expect(JSON.parse(buildSettingJSON(plain))).toMatchObject({
+      cyber_guard_enabled: false,
+    })
   })
 })

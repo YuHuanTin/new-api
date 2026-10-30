@@ -31,7 +31,7 @@ func OaiChatToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	if err := common.Unmarshal(body, &chatResp); err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
-	if oaiError := chatResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+	if oaiError := chatResp.GetOpenAIError(); dto.HasOpenAIError(oaiError) {
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 
@@ -102,8 +102,9 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		}
 		return true
 	}
-	failResponsesStream := func(err error) bool {
-		failureResults, handled := state.FailResponsesStream("server_error", err.Error(), "")
+	// code 为空时由 FailResponsesStream 统一回填 server_error
+	failResponsesStream := func(code string, err error) bool {
+		failureResults, handled := state.FailResponsesStream(code, err.Error(), "")
 		if !handled {
 			return false
 		}
@@ -128,8 +129,14 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 
 		var errorResp dto.OpenAITextResponse
 		if err := common.UnmarshalJsonStr(data, &errorResp); err == nil {
-			if oaiError := errorResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
-				if failResponsesStream(fmt.Errorf("%s", oaiError.Message)) {
+			if oaiError := errorResp.GetOpenAIError(); dto.HasOpenAIError(oaiError) {
+				code := ""
+				if oaiError.Code != nil {
+					if value := fmt.Sprint(oaiError.Code); dto.IsCyberPolicyCode(value) {
+						code = value
+					}
+				}
+				if failResponsesStream(code, fmt.Errorf("%s", oaiError.Message)) {
 					// The client got response.failed, so the request is never
 					// retried; the recorded error keeps the stream failed.
 					upstreamFailure = types.WithOpenAIError(*oaiError, http.StatusInternalServerError, types.ErrOptionWithSkipRetry())
@@ -145,7 +152,7 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		var chunk dto.ChatCompletionsStreamResponse
 		if err := common.UnmarshalJsonStr(data, &chunk); err != nil {
 			logger.LogError(c, common.LogText("failed to unmarshal chat stream response: %s", err.Error()))
-			if failResponsesStream(err) {
+			if failResponsesStream("", err) {
 				upstreamFailure = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError, types.ErrOptionWithSkipRetry())
 				sr.Stop(upstreamFailure)
 				return
@@ -158,7 +165,7 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		info.ObserveResponseModel(chunk.Model)
 		results, err := service.ConvertStreamResponseChunk(c, info, state, &chunk)
 		if err != nil {
-			if failResponsesStream(err) {
+			if failResponsesStream("", err) {
 				upstreamFailure = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError, types.ErrOptionWithSkipRetry())
 				sr.Stop(upstreamFailure)
 				return
@@ -202,7 +209,7 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 
 	finalResults, err := service.FinalizeStreamResponse(c, info, state)
 	if err != nil {
-		if failResponsesStream(err) {
+		if failResponsesStream("", err) {
 			return usage, streamErr
 		}
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)

@@ -208,6 +208,11 @@ export function StreamTpsCell(props: StreamTpsCellProps) {
                     {t('Stream Status')}: {t('Error')}
                   </p>
                   <p>{props.streamStatus?.end_reason || 'unknown'}</p>
+                  {props.streamStatus?.error_code && (
+                    <p>
+                      {t('Upstream Error Code')}: {props.streamStatus.error_code}
+                    </p>
+                  )}
                   {(props.streamStatus?.error_count ?? 0) > 0 && (
                     <p>
                       {t('Soft Errors')}: {props.streamStatus?.error_count}

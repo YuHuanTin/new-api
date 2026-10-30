@@ -23,7 +23,6 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -146,6 +145,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if relayFormat != types.RelayFormatOpenAIRealtime {
 			perfmetrics.RecordRelayResult(c.Request.Context(), relayInfo, resultErr)
 		}
+		// 收尾时把最终错误留给 cyber 处置判断：非流式请求没有流事件可用，
+		// 只能从这里拿到错误码
+		relayInfo.LastError = resultErr
+		service.RecordCyberPolicyViolation(c, relayInfo)
 		if recovered != nil {
 			panic(recovered)
 		}
@@ -241,19 +244,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 func writeRelayStreamError(c *gin.Context, format types.RelayFormat, apiError *types.NewAPIError) {
 	// 心跳提交响应头后，最终错误继续通过同一个流返回。
-	status, _ := common.GetContextKeyType[*relaycommon.StreamStatus](c, constant.ContextKeyResponseStreamStatus)
-	if status == nil {
-		status = relaycommon.NewStreamStatus()
-		common.SetContextKey(c, constant.ContextKeyResponseStreamStatus, status)
-	}
-	status.MarkFailed(string(apiError.GetErrorCode()), string(apiError.GetErrorType()), apiError.StatusCode)
-	upstreamURLs := common.UpstreamAddresses(c)
-	if format == types.RelayFormatClaude {
-		_ = helper.ClaudeData(c, dto.ClaudeResponse{Type: "error", Error: apiError.ToClaudeError(upstreamURLs...)})
-		return
-	}
-	_ = helper.ObjectData(c, gin.H{"error": apiError.ToOpenAIError(upstreamURLs...)})
-	helper.Done(c)
+	helper.WriteStreamError(c, format, apiError)
 }
 
 // CountClaudeTokens implements Anthropic's token-counting utility endpoint.

@@ -157,6 +157,43 @@ func TestStreamStatus_IsNormalEnd_NilSafe(t *testing.T) {
 	assert.True(t, s.IsNormalEnd())
 }
 
+// Failed 决定异常管理是否留存现场：协议失败、传输异常、软错误任一成立都算失败
+func TestStreamStatus_Failed(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		reason      StreamEndReason
+		softError   bool
+		protocolErr bool
+		failed      bool
+	}{
+		{"completed", StreamEndReasonDone, false, false, false},
+		{"eof without errors", StreamEndReasonEOF, false, false, false},
+		{"handler stop without errors", StreamEndReasonHandlerStop, false, false, false},
+		{"idle timeout", StreamEndReasonTimeout, false, false, true},
+		{"upstream aborted", StreamEndReasonScannerErr, false, false, true},
+		{"soft error on a normal end", StreamEndReasonDone, true, false, true},
+		{"protocol failure on a normal end", StreamEndReasonDone, false, true, true},
+	}
+	for _, tt := range tests {
+		s := NewStreamStatus()
+		s.SetEndReason(tt.reason, nil)
+		if tt.softError {
+			s.RecordError("soft error")
+		}
+		if tt.protocolErr {
+			s.MarkFailed("cyber_policy", "", 0)
+		}
+		assert.Equal(t, tt.failed, s.Failed(), "case=%s", tt.name)
+	}
+}
+
+func TestStreamStatus_Failed_NilSafe(t *testing.T) {
+	t.Parallel()
+	var s *StreamStatus
+	assert.False(t, s.Failed())
+}
+
 func TestStreamStatus_Summary(t *testing.T) {
 	t.Parallel()
 

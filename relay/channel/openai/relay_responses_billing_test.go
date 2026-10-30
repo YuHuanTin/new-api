@@ -612,6 +612,44 @@ func TestOaiResponsesStreamHandlerKeepsNonSGLangCreatedAt(t *testing.T) {
 	assert.Contains(t, w.Body.String(), `1786588600.0`)
 }
 
+// TestOaiResponsesStreamHandlerForwardsCyberPolicyRejection 覆盖原生 /v1/responses
+// 这条路：上游拒绝原样到达客户端，同时结构化错误码记录到流状态上
+func TestOaiResponsesStreamHandlerForwardsCyberPolicyRejection(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() {
+		constant.StreamingTimeout = oldTimeout
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Set(common.RequestIdKey, "responses-cyber-policy-test")
+
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "gpt-5.1",
+		DisablePing:     true,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelType:       constant.ChannelTypeSub2API,
+			UpstreamModelName: "gpt-5.1",
+		},
+	}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader(
+			"data: " + cyberPolicyFailedEventJSON + "\n\n" +
+				"data: [DONE]\n\n",
+		)),
+		Header: http.Header{"Content-Type": []string{"text/event-stream"}},
+	}
+
+	_, apiErr := OaiResponsesStreamHandler(c, info, resp)
+	require.Nil(t, apiErr)
+	assert.Contains(t, w.Body.String(), `"code":"cyber_policy"`)
+	assert.Equal(t, "cyber_policy", info.StreamStatus.OutcomeSnapshot().ErrorCode)
+}
+
 // A converted hosted web search reaches Azure and Xinference Chat Completions
 // as web_search_options, like OpenAI; the upstream decides whether it applies.
 // Azure Responses bills web search by tool_usage.web_search.num_requests (Bing

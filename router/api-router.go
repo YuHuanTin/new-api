@@ -333,6 +333,13 @@ func SetApiRouter(router *gin.Engine) {
 		logRoute.GET("/self/export", middleware.UserAuth(), controller.ExportUserLogs)
 		logRoute.GET("/self/search", middleware.UserAuth(), middleware.SearchRateLimit(), controller.SearchUserLogs)
 
+		exceptionRoute := apiRouter.Group("/exception")
+		exceptionRoute.Use(middleware.AdminAuth())
+		exceptionRoute.GET("/cyber_guard", controller.GetCyberGuardSetting)
+		exceptionRoute.PATCH("/cyber_guard", controller.UpdateCyberGuardSetting)
+		exceptionRoute.GET("/cyber_guard/channels", controller.ListCyberGuardChannels)
+		exceptionRoute.PATCH("/cyber_guard/channel", controller.SetChannelCyberGuard)
+
 		systemTaskRoute := apiRouter.Group("/system-task")
 		systemTaskRoute.Use(middleware.RootAuth())
 		{

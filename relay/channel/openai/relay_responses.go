@@ -30,9 +30,11 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	}
 	err = common.Unmarshal(responseBody, &responsesResponse)
 	if err != nil {
+		// 200 但响应体解析不了也是失败，把上游原样返回的内容留给异常管理
+		service.RecordUpstreamResponse(c, resp, responseBody)
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
-	if oaiError := responsesResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+	if oaiError := responsesResponse.GetOpenAIError(); dto.HasOpenAIError(oaiError) {
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 
@@ -90,6 +92,11 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			data = string(rewriteSGLangResponsesCreatedAt(info, []byte(data), "response.created_at", streamResponse.Response.CreatedAt))
 		}
 		accumulator.Observe(&streamResponse, common.StringToByteSlice(data))
+		if streamResponse.Type == "error" || streamResponse.Type == "response.failed" || streamResponse.Type == "response.error" {
+			// 原生 Responses 流把事件原样转发，HTTP 状态码是 200；把失败帧留下来
+			// 异常管理才还原得出上游说了什么
+			service.RecordUpstreamStreamBody(c, resp, data)
+		}
 		if err := helper.ResponseChunkData(c, streamResponse, data); err != nil {
 			sr.Stop(err)
 			return

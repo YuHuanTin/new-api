@@ -6874,6 +6874,8 @@
     "Upstream authentication": "Authentification du fournisseur",
     "Upstream connection": "Connexion amont",
     "Upstream did not return reset credit details.": "L'amont n'a renvoyé aucun détail de crédit de réinitialisation.",
+    "Upstream Error Code": "Code d'erreur amont",
+    "Upstream Error Type": "Type d'erreur amont",
     "Upstream JSON response": "Réponse JSON amont",
     "Upstream Model": "Modèle demandé en amont",
     "Upstream Model Detection Settings": "Paramètres de détection des modèles en amont",
