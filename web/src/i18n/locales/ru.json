@@ -3976,6 +3976,7 @@
     "Next branch": "Следующая ветка",
     "Next page": "Следующая страница",
     "Next reset": "Следующий сброс",
+    "Next retry: in {{time}}": "Next retry: in {{time}}",
     "No": "Нет",
     "No About Content Set": "Содержимое раздела \"О нас\" не установлено",
     "No access tokens": "Нет токенов доступа",

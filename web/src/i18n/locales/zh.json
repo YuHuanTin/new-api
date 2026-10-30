@@ -3976,6 +3976,7 @@
     "Next branch": "下一个分支",
     "Next page": "下一页",
     "Next reset": "下一次重置",
+    "Next retry: in {{time}}": "下次重试：{{time}} 后",
     "No": "否",
     "No About Content Set": "未设置关于内容",
     "No access tokens": "暂无访问令牌",

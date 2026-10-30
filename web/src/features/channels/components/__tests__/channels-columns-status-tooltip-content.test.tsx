@@ -22,9 +22,11 @@ import {
   getCoreRowModel,
   useReactTable,
 } from '@tanstack/react-table'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { expect, test } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
+
+import { api } from '@/lib/api'
 
 import { channelSchema, type Channel } from '../../types'
 import { useChannelsColumns } from '../channels-columns'
@@ -44,9 +46,47 @@ function ExampleAutoDisabledStatusCell(props: { channel: Channel }) {
   return cell ? flexRender(cell.column.columnDef.cell, cell.getContext()) : null
 }
 
-test('keeps the long string inside the status tooltip is wrapped when show', async () => {
-  const reason = '114514'.repeat(40)
-  const channelItem = channelSchema.parse({
+function renderAutoDisabledChannel(
+  channelItem: Channel,
+  intervalMinutes: number
+) {
+  vi.spyOn(api, 'get').mockImplementation(async (url) => {
+    if (url === '/api/option/request_policy') {
+      return {
+        data: {
+          success: true,
+          data: {
+            options: {
+              'monitor_setting.auto_test_channel_minutes':
+                String(intervalMinutes),
+            },
+          },
+        },
+      }
+    }
+    return { data: { success: true, data: {} } }
+  })
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  // 巡检间隔提前塞进缓存，避免单元格在 hover 之后才重渲染
+  queryClient.setQueryData(['request-policy'], {
+    options: {
+      'monitor_setting.auto_test_channel_minutes': String(intervalMinutes),
+    },
+  })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <ChannelsProvider>
+        <ExampleAutoDisabledStatusCell channel={channelItem} />
+      </ChannelsProvider>
+    </QueryClientProvider>
+  )
+  return queryClient
+}
+
+function autoDisabledChannel(otherInfo: Record<string, unknown>): Channel {
+  return channelSchema.parse({
     id: 1,
     type: 1,
     key: 'test-key',
@@ -56,22 +96,47 @@ test('keeps the long string inside the status tooltip is wrapped when show', asy
     test_time: 0,
     response_time: 0,
     balance_updated_time: 0,
-    other_info: JSON.stringify({ status_reason: reason }),
+    other_info: JSON.stringify(otherInfo),
   })
-  const queryClient = new QueryClient()
+}
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+test('keeps the long string inside the status tooltip is wrapped when show', async () => {
+  const reason = '114514'.repeat(40)
   const user = userEvent.setup()
 
-  render(
-    <QueryClientProvider client={queryClient}>
-      <ChannelsProvider>
-        <ExampleAutoDisabledStatusCell channel={channelItem} />
-      </ChannelsProvider>
-    </QueryClientProvider>
+  const client = renderAutoDisabledChannel(
+    autoDisabledChannel({ status_reason: reason }),
+    0
   )
+  await waitFor(() => expect(client.isFetching()).toBe(0))
 
   await user.hover(screen.getByText('Auto Disabled'))
 
   expect(await screen.findByText(reason, { exact: false })).toHaveClass(
     'wrap-anywhere'
   )
+})
+
+// 自动禁用的渠道要能看出还要等多久才会再被巡检
+test('shows the next retry countdown for an auto-disabled channel', async () => {
+  const user = userEvent.setup()
+  const disabledAt = Math.floor(Date.now() / 1000) - 60
+
+  const client = renderAutoDisabledChannel(
+    autoDisabledChannel({
+      status_reason: 'upstream failed',
+      status_time: disabledAt,
+    }),
+    10
+  )
+  await waitFor(() => expect(client.isFetching()).toBe(0))
+
+  await user.hover(screen.getByText('Auto Disabled'))
+
+  // 封禁 1 分钟 + 10 分钟间隔 → 还剩 9 分钟左右（hover 与渲染会耗掉几秒）
+  expect(await screen.findByText(/Next retry: in (9m|8m\d+s)/)).toBeVisible()
 })

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 /* eslint-disable react-refresh/only-export-components */
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import {
   AlertTriangle,
@@ -46,6 +46,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { getPolicyConfig } from '@/features/system-settings/request-policies/api'
 import { toIntlLocale } from '@/i18n/languages'
 import {
   formatCurrencyFromUSD,
@@ -88,6 +89,7 @@ import {
 } from '../lib'
 import { parseUpstreamUpdateMeta } from '../lib/upstream-update-utils'
 import type { Channel } from '../types'
+import { ChannelRetryCountdown } from './channel-retry-countdown'
 import { ChannelRowActionsLayoutContext } from './channel-row-actions-context'
 import { TaskPluginChannelBadge } from './channel-type-badge'
 import { useChannels } from './channels-provider'
@@ -631,6 +633,18 @@ export function useChannelsColumns(
   const groupRatios = options.groupRatios
   const groupComments = options.groupComments
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  // 巡检间隔来自请求策略设置；只用来算「下次重试还有多久」，读一次就缓存
+  // 拿不到设置时不给倒计时，不影响列表本身
+  const policyQuery = useQuery({
+    queryKey: ['request-policy'],
+    queryFn: getPolicyConfig,
+    staleTime: Infinity,
+    retry: false,
+  })
+  const autoTestMinutes = Number(
+    policyQuery.data?.options?.['monitor_setting.auto_test_channel_minutes'] ??
+      0
+  )
   // The column definitions only depend on the translation function, the active
   // locale, and sensitive-data visibility. Memoizing keeps the array (and every
   // cell renderer reference) stable across unrelated re-renders, so react-table
@@ -997,25 +1011,27 @@ export function useChannelsColumns(
               ? `${t(config.label)} (${enabledCount}/${keySize})`
               : t(config.label)
 
-          // Auto-disabled: show reason and time tooltip
+          // Auto-disabled: show reason, time and the next retry countdown
           if (status === 3) {
             let statusReason = ''
             let statusTime = ''
+            let disabledAt = 0
             try {
               const otherInfo = channel.other_info
                 ? JSON.parse(channel.other_info)
                 : null
               if (otherInfo) {
                 statusReason = otherInfo.status_reason || ''
-                statusTime = otherInfo.status_time
-                  ? formatTimestampToDate(otherInfo.status_time)
-                  : ''
+                disabledAt = otherInfo.status_time || 0
+                statusTime = disabledAt ? formatTimestampToDate(disabledAt) : ''
               }
             } catch {
               /* empty */
             }
+            const hasRetryCountdown =
+              autoTestMinutes > 0 && Boolean(channel.test_time || disabledAt)
 
-            if (statusReason || statusTime) {
+            if (statusReason || statusTime || hasRetryCountdown) {
               return (
                 <TooltipProvider delay={100}>
                   <Tooltip>
@@ -1039,6 +1055,13 @@ export function useChannelsColumns(
                           <div>
                             {t('Time:')} {statusTime}
                           </div>
+                        )}
+                        {hasRetryCountdown && (
+                          <ChannelRetryCountdown
+                            testTime={channel.test_time}
+                            disabledAt={disabledAt}
+                            intervalMinutes={autoTestMinutes}
+                          />
                         )}
                       </div>
                     </TooltipContent>
@@ -1307,6 +1330,14 @@ export function useChannelsColumns(
         meta: { pinned: 'right' as const },
       },
     ],
-    [enableSelection, groupComments, groupRatios, t, locale, sensitiveVisible]
+    [
+      autoTestMinutes,
+      enableSelection,
+      groupComments,
+      groupRatios,
+      t,
+      locale,
+      sensitiveVisible,
+    ]
   )
 }
