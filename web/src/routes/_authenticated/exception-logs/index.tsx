@@ -10,6 +10,8 @@ const exceptionLogsSearchSchema = z.object({
   pageSize: z.number().optional().catch(undefined),
   filter: z.string().optional().catch(''),
   error_code: z.string().optional().catch(''),
+  startTime: z.number().optional(),
+  endTime: z.number().optional(),
 })
 
 export const Route = createFileRoute('/_authenticated/exception-logs/')({

@@ -36,17 +36,17 @@ const maxClearExceptionCaptureIDs = 200
 // ClearExceptionCapture 清除选中日志保存的抓包现场，日志记录本身保留
 func ClearExceptionCapture(c *gin.Context) {
 	var request struct {
-		IDs []int `json:"ids"`
+		Items []model.LogLocator `json:"items"`
 	}
-	if err := c.ShouldBindJSON(&request); err != nil || len(request.IDs) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "ids is required"})
+	if err := c.ShouldBindJSON(&request); err != nil || len(request.Items) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "items is required"})
 		return
 	}
-	if len(request.IDs) > maxClearExceptionCaptureIDs {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "too many ids"})
+	if len(request.Items) > maxClearExceptionCaptureIDs {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "too many items"})
 		return
 	}
-	cleared, err := model.ClearLogAnomalyCapture(request.IDs)
+	cleared, err := model.ClearLogAnomalyCapture(request.Items)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
@@ -55,14 +55,17 @@ func ClearExceptionCapture(c *gin.Context) {
 }
 
 // GetExceptionCapture 按需读取一条日志保存的抓包现场。日志列表不带这块数据
-// （一条最多 4 MB），只有打开详情时才拉取
+// （一条最多 4 MB），只有打开详情时才拉取。ClickHouse 的 log id 不可用，
+// 前端同时带上 request_id 和 created_at
 func GetExceptionCapture(c *gin.Context) {
-	id, err := strconv.Atoi(c.Query("id"))
-	if err != nil || id <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid id"})
+	id, _ := strconv.Atoi(c.Query("id"))
+	createdAt, _ := strconv.ParseInt(c.Query("created_at"), 10, 64)
+	locator := model.LogLocator{Id: id, RequestId: c.Query("request_id"), CreatedAt: createdAt}
+	if !locator.Valid() {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid log locator"})
 		return
 	}
-	anomaly, found, err := model.GetLogAnomalyCapture(id)
+	anomaly, found, err := model.GetLogAnomalyCapture(locator)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return

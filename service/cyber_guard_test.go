@@ -81,12 +81,13 @@ func TestRecordCyberPolicyViolationDisablesUserBeyondThreshold(t *testing.T) {
 	cyberGuardState.reset(user.Id)
 	t.Cleanup(func() { cyberGuardState.reset(user.Id) })
 
-	for attempt := 1; attempt <= 3; attempt++ {
+	// threshold=3 表示窗口内允许 3 次，第 4 次才禁用
+	for attempt := 1; attempt <= 4; attempt++ {
 		RecordCyberPolicyViolation(newCyberRelayInfo(user.Id))
 		loaded, err := model.GetUserById(user.Id, true)
 		require.NoError(t, err)
-		if attempt < 3 {
-			assert.Equal(t, common.UserStatusEnabled, loaded.Status, "禁用不应早于阈值触发")
+		if attempt <= 3 {
+			assert.Equal(t, common.UserStatusEnabled, loaded.Status, "达到阈值的次数仍在允许范围内")
 			continue
 		}
 		assert.Equal(t, common.UserStatusDisabled, loaded.Status, "超过阈值后账号应被禁用")
@@ -119,6 +120,8 @@ func TestRecordCyberPolicyViolationKeepsRootAccount(t *testing.T) {
 	cyberGuardState.reset(root.Id)
 	t.Cleanup(func() { cyberGuardState.reset(root.Id) })
 
+	// 第 2 次超过阈值，才会走到「是否可清退」的判断
+	RecordCyberPolicyViolation(newCyberRelayInfo(root.Id))
 	RecordCyberPolicyViolation(newCyberRelayInfo(root.Id))
 
 	loaded, err := model.GetUserById(root.Id, true)
@@ -134,6 +137,7 @@ func TestRecordCyberPolicyViolationKeepsAdminAccount(t *testing.T) {
 	cyberGuardState.reset(admin.Id)
 	t.Cleanup(func() { cyberGuardState.reset(admin.Id) })
 
+	RecordCyberPolicyViolation(newCyberRelayInfo(admin.Id))
 	RecordCyberPolicyViolation(newCyberRelayInfo(admin.Id))
 
 	loaded, err := model.GetUserById(admin.Id, true)

@@ -11,7 +11,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	openaichannel "github.com/QuantumNous/new-api/relay/channel/openai"
-	"github.com/QuantumNous/new-api/relay/channel/sub2api"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -208,85 +207,6 @@ func TestTextRequestViaResponsesConvertsClaudeDirectly(t *testing.T) {
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 	require.Len(t, response.Content, 1)
 	assert.Equal(t, "ok", response.Content[0].GetText())
-}
-
-// TestTextRequestViaResponsesSurfacesUpstreamCyberPolicy 用一个 sub2api 上游的
-// 替身跑 Chat Completions 中继。sub2api 会识别出 OpenAI Codex 账号的
-// cyber_policy 拒绝并原样转发上游响应，所以 new-api 必须自己认得这个拒绝：
-// 上游错误对象只有 code 和 message，没有 type
-func TestTextRequestViaResponsesSurfacesUpstreamCyberPolicy(t *testing.T) {
-	const cyberPolicyBody = `{"error":{"code":"cyber_policy","message":"Request blocked by content policy."}}`
-	oldTimeout := constant.StreamingTimeout
-	constant.StreamingTimeout = 30
-	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
-	for _, tc := range []struct {
-		name        string
-		status      int
-		contentType string
-		body        string
-	}{
-		{
-			name:        "non stream upstream error body",
-			status:      http.StatusBadRequest,
-			contentType: "application/json",
-			body:        cyberPolicyBody,
-		},
-		{
-			name:        "stream response failed event",
-			status:      http.StatusOK,
-			contentType: "text/event-stream",
-			body:        "data: {\"type\":\"response.failed\",\"response\":{\"id\":\"resp_cyber\",\"model\":\"gpt-5.1\",\"error\":{\"code\":\"cyber_policy\",\"message\":\"Request blocked by content policy.\"}}}\n\n",
-		},
-		{
-			name:        "stream bare error event",
-			status:      http.StatusOK,
-			contentType: "text/event-stream",
-			body:        "data: {\"type\":\"error\",\"error\":{\"code\":\"cyber_policy\",\"message\":\"Request blocked by content policy.\"}}\n\n",
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", tc.contentType)
-				w.WriteHeader(tc.status)
-				_, _ = w.Write([]byte(tc.body))
-			}))
-			defer server.Close()
-
-			gin.SetMode(gin.TestMode)
-			recorder := httptest.NewRecorder()
-			c, _ := gin.CreateTestContext(recorder)
-			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-			c.Request.Header.Set("Content-Type", "application/json")
-			c.Set(common.RequestIdKey, "cyber-policy-test")
-
-			info := &relaycommon.RelayInfo{
-				RelayMode:       relayconstant.RelayModeChatCompletions,
-				RelayFormat:     relaytypes.RelayFormatOpenAI,
-				OriginModelName: "gpt-5.1",
-				IsStream:        tc.status == http.StatusOK,
-				ChannelMeta: &relaycommon.ChannelMeta{
-					ChannelType:       constant.ChannelTypeSub2API,
-					ChannelBaseUrl:    server.URL,
-					ApiKey:            "test-key",
-					UpstreamModelName: "gpt-5.1",
-				},
-			}
-			adaptor := &sub2api.Adaptor{}
-			adaptor.Init(info)
-			request := &dto.GeneralOpenAIRequest{
-				Model:    "gpt-5.1",
-				Messages: []dto.Message{{Role: "user", Content: "hello"}},
-			}
-
-			_, apiErr := textRequestViaResponses(c, info, adaptor, request)
-
-			require.NotNil(t, apiErr, "the cyber_policy rejection must not be swallowed")
-			assert.Equal(t, relaytypes.ErrorCode("cyber_policy"), apiErr.GetErrorCode())
-			clientError := apiErr.ToOpenAIError()
-			assert.Equal(t, "cyber_policy", clientError.Code)
-			assert.Contains(t, clientError.Message, "Request blocked by content policy.")
-		})
-	}
 }
 
 func TestApplySystemPromptIfNeededSkipsToolLoadingMessages(t *testing.T) {

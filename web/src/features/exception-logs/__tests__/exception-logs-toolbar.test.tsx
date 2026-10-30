@@ -106,6 +106,17 @@ test('refetches the current page when the search button is clicked', async () =>
   await waitFor(() => expect(requests).toHaveLength(2))
 })
 
+// 异常列表默认只看今天：failed_only 的 LIKE 条件必须有时间下界
+test('bounds the query with a default time range', async () => {
+  const requests = await renderTable()
+
+  expect(typeof requests[0].start_timestamp).toBe('number')
+  expect(typeof requests[0].end_timestamp).toBe('number')
+  expect(Number(requests[0].end_timestamp)).toBeGreaterThan(
+    Number(requests[0].start_timestamp)
+  )
+})
+
 // 和「通用日志」一样：筛选条件先填，点「搜索」才生效
 test('applies the typed filters only after clicking search', async () => {
   const user = userEvent.setup()
@@ -125,4 +136,5 @@ test('applies the typed filters only after clicking search', async () => {
     username: 'bob',
     error_code: 'cyber_policy',
   })
+  expect(typeof requests[1].start_timestamp).toBe('number')
 })

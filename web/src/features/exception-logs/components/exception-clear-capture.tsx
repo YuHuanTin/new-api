@@ -10,7 +10,7 @@ import { DataTableBulkActions } from '@/components/data-table'
 import { Button } from '@/components/ui/button'
 import { handleServerError } from '@/lib/handle-server-error'
 
-import { clearExceptionCapture } from '../api'
+import { clearExceptionCapture, type ExceptionLogLocator } from '../api'
 import type { ExceptionLog } from '../types'
 
 type ExceptionClearCaptureProps = {
@@ -28,7 +28,7 @@ export function ExceptionClearCapture({ table }: ExceptionClearCaptureProps) {
   const selectedRows = table.getFilteredSelectedRowModel().rows
 
   const mutation = useMutation({
-    mutationFn: (ids: number[]) => clearExceptionCapture(ids),
+    mutationFn: (items: ExceptionLogLocator[]) => clearExceptionCapture(items),
     onSuccess: async (result) => {
       setConfirmOpen(false)
       table.resetRowSelection()
@@ -45,9 +45,13 @@ export function ExceptionClearCapture({ table }: ExceptionClearCaptureProps) {
   })
 
   const handleConfirm = () => {
-    const ids = selectedRows.map((row) => row.original.id)
-    if (ids.length === 0) return
-    mutation.mutate(ids)
+    const items = selectedRows.map((row) => ({
+      id: row.original.id,
+      request_id: row.original.request_id,
+      created_at: row.original.created_at,
+    }))
+    if (items.length === 0) return
+    mutation.mutate(items)
   }
 
   return (

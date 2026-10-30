@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -50,7 +51,7 @@ func TestClearLogAnomalyCaptureKeepsTheLogRow(t *testing.T) {
 	}
 	require.NoError(t, db.Create(log).Error)
 
-	cleared, err := ClearLogAnomalyCapture([]int{log.Id})
+	cleared, err := ClearLogAnomalyCapture([]LogLocator{{Id: log.Id}})
 	require.NoError(t, err)
 	assert.Equal(t, 1, cleared)
 
@@ -60,7 +61,7 @@ func TestClearLogAnomalyCaptureKeepsTheLogRow(t *testing.T) {
 	assert.Contains(t, stored.Other, "cache_tokens")
 	assert.Equal(t, "boom", stored.Content, "日志记录本身保留")
 
-	cleared, err = ClearLogAnomalyCapture([]int{log.Id})
+	cleared, err = ClearLogAnomalyCapture([]LogLocator{{Id: log.Id}})
 	require.NoError(t, err)
 	assert.Equal(t, 0, cleared, "已清理过的行不再改动")
 }
@@ -93,12 +94,12 @@ func TestGetLogAnomalyCaptureReadsOnDemand(t *testing.T) {
 	assert.NotContains(t, listed[0].Other, logOtherAnomalyKey)
 	assert.Contains(t, listed[0].Other, "request_policy", "其它管理员字段留在列表里")
 
-	anomaly, found, err := GetLogAnomalyCapture(log.Id)
+	anomaly, found, err := GetLogAnomalyCapture(LogLocator{Id: log.Id})
 	require.NoError(t, err)
 	require.True(t, found)
 	assert.Equal(t, "https://up.example.com", anomaly["request_url"], "详情按需读到解压后的现场")
 
-	_, found, err = GetLogAnomalyCapture(log.Id + 1000)
+	_, found, err = GetLogAnomalyCapture(LogLocator{Id: log.Id + 1000})
 	require.NoError(t, err)
 	assert.False(t, found, "不存在的日志返回 found=false")
 }
@@ -133,7 +134,7 @@ func TestClearLogAnomalyCaptureRollsBackOnFailure(t *testing.T) {
 		}
 	}))
 
-	_, err = ClearLogAnomalyCapture([]int{first.Id, second.Id})
+	_, err = ClearLogAnomalyCapture([]LogLocator{{Id: first.Id}, {Id: second.Id}})
 	require.Error(t, err, "第二行写失败时接口必须报错")
 
 	var stored []Log
@@ -141,4 +142,58 @@ func TestClearLogAnomalyCaptureRollsBackOnFailure(t *testing.T) {
 	require.Len(t, stored, 2)
 	assert.Contains(t, stored[0].Other, "anomaly", "第一行的清理必须回滚")
 	assert.Contains(t, stored[1].Other, "anomaly")
+}
+
+// ClickHouse 的 log id 恒为 0，必须用建表排序键 (created_at, request_id) 定位
+func TestLogLocatorUsesClickHouseKey(t *testing.T) {
+	previousType := common.LogDatabaseType()
+	t.Cleanup(func() { common.SetLogDatabaseType(previousType) })
+
+	common.SetLogDatabaseType(common.DatabaseTypeClickHouse)
+	clickHouse := LogLocator{Id: 5, RequestId: "req-1", CreatedAt: 123}
+	assert.True(t, clickHouse.Valid())
+	assert.False(t, LogLocator{Id: 5}.Valid(), "只有 id 的定位在 ClickHouse 下不可用")
+	condition, args := clickHouse.condition()
+	assert.Equal(t, "created_at = ? AND request_id = ?", condition)
+	assert.Equal(t, []any{int64(123), "req-1"}, args)
+
+	common.SetLogDatabaseType(common.DatabaseTypeSQLite)
+	assert.True(t, LogLocator{Id: 5}.Valid())
+	condition, args = LogLocator{Id: 5}.condition()
+	assert.Equal(t, "id = ?", condition)
+	assert.Equal(t, []any{5}, args)
+}
+
+// 导出不携带抓包现场，避免每行解压 4 MB 把导出文件撑大
+func TestStreamAllLogsStripsCapture(t *testing.T) {
+	previousDB := LOG_DB
+	previousType := common.LogDatabaseType()
+	t.Cleanup(func() {
+		LOG_DB = previousDB
+		common.SetLogDatabaseType(previousType)
+	})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	require.NoError(t, db.AutoMigrate(&Log{}))
+	LOG_DB = db
+	common.SetLogDatabaseType(common.DatabaseTypeSQLite)
+
+	log := &Log{
+		Type:    LogTypeError,
+		Content: "boom",
+		Other:   `{"public":{"cache_tokens":10},"admin_info":{"anomaly":"gz:abc","request_policy":[]}}`,
+	}
+	require.NoError(t, db.Create(log).Error)
+
+	var exported string
+	require.NoError(t, StreamAllLogs(context.Background(), LogFilter{}, common.RoleAdminUser, func(row *Log) error {
+		exported = row.Other
+		return nil
+	}))
+	assert.NotContains(t, exported, "anomaly")
+	assert.Contains(t, exported, "cache_tokens", "其它字段照常导出")
+	assert.Contains(t, exported, "request_policy")
 }

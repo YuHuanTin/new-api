@@ -128,7 +128,7 @@ describe('exception detail dialog', () => {
     expect(block.textContent).toContain('<<< HTTP 502')
     expect(block.textContent).toContain('bad gateway')
     expect(api.get).toHaveBeenCalledWith('/api/exception/capture', {
-      params: { id: 1 },
+      params: { id: 1, request_id: 'req-1', created_at: 1 },
     })
   })
 

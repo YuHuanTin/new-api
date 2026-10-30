@@ -13,6 +13,8 @@ export interface ExceptionLogsParams {
   pageSize: number
   username?: string
   errorCode?: string
+  startTimestamp?: number
+  endTimestamp?: number
 }
 
 /** 拉取失败的请求：错误日志行，以及流状态判定为失败的消耗日志行。 */
@@ -24,20 +26,29 @@ export async function getExceptionLogs(params: ExceptionLogsParams) {
       failed_only: 1,
       username: params.username || undefined,
       error_code: params.errorCode || undefined,
+      start_timestamp: params.startTimestamp || undefined,
+      end_timestamp: params.endTimestamp || undefined,
     },
   })
   return requireServerSuccess(response.data).data as ExceptionLogsResult
 }
 
+/** 定位一条日志：SQL 数据库用 id，ClickHouse 用 (created_at, request_id) */
+export interface ExceptionLogLocator {
+  id: number
+  request_id: string
+  created_at: number
+}
+
 /** 清掉选中请求保存的抓包现场（请求/响应报文），日志记录本身不动。 */
-export async function clearExceptionCapture(ids: number[]) {
-  const response = await api.post('/api/exception/clear_capture', { ids })
+export async function clearExceptionCapture(items: ExceptionLogLocator[]) {
+  const response = await api.post('/api/exception/clear_capture', { items })
   return requireServerSuccess(response.data).data as { cleared: number }
 }
 
 /** 打开异常详情时才拉取抓包现场；列表接口不带这块数据。 */
-export async function getExceptionCapture(id: number) {
-  const response = await api.get('/api/exception/capture', { params: { id } })
+export async function getExceptionCapture(locator: ExceptionLogLocator) {
+  const response = await api.get('/api/exception/capture', { params: locator })
   const data = requireServerSuccess(response.data).data as {
     anomaly?: ExceptionLogAnomaly
   }

@@ -145,7 +145,13 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 				var chunk dto.ChatCompletionsStreamResponse
 				if err := common.UnmarshalJsonStr(data, &chunk); err == nil {
 					if oaiErr := chunk.GetOpenAIError(); oaiErr != nil {
-						upstreamStreamError = upstreamStreamErrorFromUpstream(oaiErr)
+						var opts []types.NewAPIErrorOptions
+						if c.Writer.Written() {
+							// 已经写出流后不能再换渠道重试，否则同一个响应里会追加
+							// 第二条流，客户端收到重复内容
+							opts = append(opts, types.ErrOptionWithSkipRetry())
+						}
+						upstreamStreamError = upstreamStreamErrorFromUpstream(oaiErr, opts...)
 						if hit, _ := dto.DetectCyberPolicy(oaiErr); hit {
 							info.CyberPolicyViolation = true
 						}

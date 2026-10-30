@@ -9,7 +9,7 @@ import {
 } from '@/features/usage-logs/components/dialogs/log-detail-layout'
 import { formatTimestampToDate } from '@/lib/format'
 
-import { getExceptionCapture } from '../../api'
+import { getExceptionCapture, type ExceptionLogLocator } from '../../api'
 import {
   parseExceptionLogOther,
   type ExceptionLog,
@@ -137,12 +137,23 @@ function ExchangeBlock({ anomaly }: { anomaly: ExceptionLogAnomaly }) {
   )
 }
 
-/** 列表接口不再返回抓包现场，打开详情时才按日志 id 拉取。 */
-function RemoteExchange({ logId, open }: { logId: number; open: boolean }) {
+/** 列表接口不再返回抓包现场，打开详情时才按日志定位信息拉取。 */
+function RemoteExchange({
+  locator,
+  open,
+}: {
+  locator: ExceptionLogLocator
+  open: boolean
+}) {
   const { t } = useTranslation()
   const query = useQuery({
-    queryKey: ['exception-capture', logId],
-    queryFn: () => getExceptionCapture(logId),
+    queryKey: [
+      'exception-capture',
+      locator.id,
+      locator.request_id,
+      locator.created_at,
+    ],
+    queryFn: () => getExceptionCapture(locator),
     enabled: open,
   })
   if (query.isPending) {
@@ -191,7 +202,14 @@ export function ExceptionDetailDialog(props: {
         {hasExchange(anomaly) ? (
           <ExchangeBlock anomaly={anomaly as ExceptionLogAnomaly} />
         ) : (
-          <RemoteExchange logId={props.log.id} open={props.open} />
+          <RemoteExchange
+            locator={{
+              id: props.log.id,
+              request_id: props.log.request_id,
+              created_at: props.log.created_at,
+            }}
+            open={props.open}
+          />
         )}
 
         {policy.length > 0 ? (

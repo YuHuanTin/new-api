@@ -92,7 +92,8 @@ func RecordCyberPolicyViolation(relayInfo *relaycommon.RelayInfo) {
 	count := cyberGuardState.record(relayInfo.UserId, time.Now().Unix(), int64(window.Seconds()))
 	common.SysLog(common.LogText("cyber_policy rejection recorded for user %d: %d/%d within %d minutes",
 		relayInfo.UserId, count, threshold, windowMinutes))
-	if count < threshold || !cyberSetting.AutoBan {
+	// threshold 是窗口内允许的次数，超过（第 threshold+1 次）才处置
+	if count <= threshold || !cyberSetting.AutoBan {
 		return
 	}
 

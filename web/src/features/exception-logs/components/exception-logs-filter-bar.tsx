@@ -3,11 +3,13 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { AutoRefreshButton } from '@/components/auto-refresh-button'
+import { CompactDateTimeRangePicker } from '@/features/usage-logs/components/compact-date-time-range-picker'
 import {
   LogsFilterField,
   LogsFilterInput,
   LogsFilterToolbar,
 } from '@/features/usage-logs/components/logs-filter-toolbar'
+import { getDefaultTimeRange } from '@/features/usage-logs/lib/utils'
 import type { AutoRefreshState } from '@/hooks/use-auto-refresh'
 
 import type { ExceptionLog } from '../types'
@@ -15,6 +17,8 @@ import type { ExceptionLog } from '../types'
 export interface ExceptionLogsFilters {
   username: string
   errorCode: string
+  startTime: Date
+  endTime: Date
 }
 
 /**
@@ -58,11 +62,30 @@ export function ExceptionLogsFilterBar(props: {
       searchLoading={props.searchLoading}
       onSearch={() => props.onApply(draft)}
       onReset={() => {
-        setDraft({ username: '', errorCode: '' })
+        const { start, end } = getDefaultTimeRange()
+        setDraft({
+          username: '',
+          errorCode: '',
+          startTime: start,
+          endTime: end,
+        })
         props.onReset()
       }}
       primaryFilters={
         <>
+          <LogsFilterField wide>
+            <CompactDateTimeRangePicker
+              start={draft.startTime}
+              end={draft.endTime}
+              onChange={({ start, end }) =>
+                setDraft((previous) => ({
+                  ...previous,
+                  startTime: start,
+                  endTime: end,
+                }))
+              }
+            />
+          </LogsFilterField>
           <LogsFilterField>
             <LogsFilterInput
               placeholder={t('Filter by username...')}

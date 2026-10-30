@@ -642,6 +642,11 @@ func StreamAllLogs(ctx context.Context, filter LogFilter, role int, fn func(*Log
 			}
 			log.ChannelName = name
 		}
+		// 导出不带抓包现场：一条最多 4 MB，解压后会让导出文件膨胀几倍，
+		// 需要时仍可在异常管理里按需查看
+		if stripped, changed := stripLogAnomalyCapture(log.Other); changed {
+			log.Other = stripped
+		}
 		log.Other = formatLogOtherJSON(log.Other, visibility)
 		return fn(log)
 	})

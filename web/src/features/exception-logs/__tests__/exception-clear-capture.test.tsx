@@ -107,7 +107,7 @@ test('clears the capture of the selected requests only', async () => {
 
   await waitFor(() =>
     expect(post).toHaveBeenCalledWith('/api/exception/clear_capture', {
-      ids: [1],
+      items: [{ id: 1, request_id: 'req-1', created_at: 1788840000 }],
     })
   )
   await waitFor(() =>
