@@ -1,5 +1,7 @@
 package model
 
+import "gorm.io/gorm"
+
 // ListCyberGuardChannels 返回开启了 cyber 策略计数的渠道
 func ListCyberGuardChannels() ([]*Channel, error) {
 	var channels []*Channel
@@ -17,16 +19,20 @@ func ListCyberGuardChannels() ([]*Channel, error) {
 	return enabled, nil
 }
 
-// SetChannelCyberGuard 打开或关闭单个渠道的 cyber 策略计数
+// SetChannelCyberGuard 打开或关闭单个渠道的 cyber 策略计数。读取-修改-写回放在
+// 同一个事务里，避免和同渠道其它设置的并发修改互相覆盖
 func SetChannelCyberGuard(id int, enabled bool) error {
-	var channel Channel
-	if err := DB.First(&channel, id).Error; err != nil {
-		return err
-	}
-	setting := channel.GetSetting()
-	setting.CyberGuardEnabled = enabled
-	channel.SetSetting(setting)
-	if err := DB.Model(&Channel{}).Where("id = ?", id).Update("setting", channel.Setting).Error; err != nil {
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var channel Channel
+		if err := lockForUpdate(tx).First(&channel, id).Error; err != nil {
+			return err
+		}
+		setting := channel.GetSetting()
+		setting.CyberGuardEnabled = enabled
+		channel.SetSetting(setting)
+		return tx.Model(&Channel{}).Where("id = ?", id).Update("setting", channel.Setting).Error
+	})
+	if err != nil {
 		return err
 	}
 	InitChannelCache()
