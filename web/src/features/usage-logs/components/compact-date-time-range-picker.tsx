@@ -94,7 +94,7 @@ export function CompactDateTimeRangePicker({
     const presets = {
       today: {
         start: now.startOf('day').toDate(),
-        end: now.endOf('day').toDate(),
+        end: now.add(1, 'day').startOf('day').toDate(),
       },
       '7d': {
         start: now.subtract(6, 'day').startOf('day').toDate(),

@@ -68,6 +68,7 @@ import {
   flowNodeFilterFromSankeyDatum,
   flowSankeyDatumValue,
   getDefaultDays,
+  getPresetDateRange,
   getFlowStages,
 } from '@/features/dashboard/lib'
 import {
@@ -314,19 +315,22 @@ export function FlowCharts(props: FlowChartsProps) {
     })
   }
 
-  const timeRange = useMemo(
-    () =>
-      computeTimeRange(
-        getDefaultDays(props.filters?.time_granularity),
-        props.filters?.start_timestamp,
-        props.filters?.end_timestamp
-      ),
-    [
-      props.filters?.end_timestamp,
-      props.filters?.start_timestamp,
-      props.filters?.time_granularity,
-    ]
-  )
+  const timeRange = useMemo(() => {
+    // 没显式选时间时退回默认区间；默认值 0 表示「今天」，是当天 0 点到次日
+    // 0 点，不是滚动窗口，所以要按预设区间算而不是用天数减
+    const fallback = getPresetDateRange(
+      getDefaultDays(props.filters?.time_granularity)
+    )
+    return computeTimeRange(
+      0,
+      props.filters?.start_timestamp ?? fallback.start,
+      props.filters?.end_timestamp ?? fallback.end
+    )
+  }, [
+    props.filters?.end_timestamp,
+    props.filters?.start_timestamp,
+    props.filters?.time_granularity,
+  ])
   const flowQueryParams = useMemo(
     () => buildQueryParams(timeRange, props.filters),
     [props.filters, timeRange]

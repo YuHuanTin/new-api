@@ -33,6 +33,7 @@ import {
 } from '@/features/dashboard/constants'
 import {
   getDefaultDays,
+  getPresetDateRange,
   saveGranularity,
   processUserChartData,
 } from '@/features/dashboard/lib'
@@ -41,7 +42,7 @@ import type {
   UserChartsFilters,
 } from '@/features/dashboard/types'
 import { requireServerSuccess } from '@/lib/server-error-message'
-import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
+import type { TimeGranularity } from '@/lib/time'
 import { VCHART_OPTION } from '@/lib/vchart'
 
 let themeManagerPromise: Promise<
@@ -88,7 +89,7 @@ export function UserCharts(props: UserChartsProps) {
   const onFiltersChange = props.onFiltersChange
 
   const timeRange = useMemo(() => {
-    const { start, end } = getRollingDateRange(selectedRange)
+    const { start, end } = getPresetDateRange(selectedRange)
     return {
       start_timestamp: Math.floor(start.getTime() / 1000),
       end_timestamp: Math.floor(end.getTime() / 1000),

@@ -26,6 +26,7 @@ export {
   saveChartPreferences,
   buildDefaultDashboardFilters,
 } from './filters'
+export { getPresetDateRange } from './preset-range'
 export {
   getLatencyColorClass,
   testUrlLatency,
