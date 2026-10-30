@@ -21,7 +21,7 @@ import {
   getPaginationRowModel,
   useReactTable,
 } from '@tanstack/react-table'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, it } from 'vitest'
 
@@ -61,6 +61,59 @@ it('shows a valid empty page with navigation disabled', () => {
   ).toBeDisabled()
   expect(screen.getByRole('button', { name: 'Go to next page' })).toBeDisabled()
 })
+const manyRows = Array.from({ length: 20 }, (_, index) => ({ id: index + 1 }))
+
+function ManyPagesFixture() {
+  const table = useReactTable({
+    data: manyRows,
+    columns: [{ accessorKey: 'id' }],
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    initialState: { pagination: { pageIndex: 0, pageSize: 1 } },
+  })
+  return <DataTablePagination table={table} />
+}
+
+it('virtualizes middle pages and keeps the first and last page fixed', async () => {
+  const user = userEvent.setup()
+  render(<ManyPagesFixture />)
+
+  expect(screen.getByRole('button', { name: 'Go to page 1' })).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Go to page 20' })).toBeVisible()
+
+  const list = document.querySelector<HTMLDivElement>(
+    '[data-slot="pagination-pages"]'
+  )
+  expect(list).not.toBeNull()
+  if (!list) throw new Error('pagination list not found')
+  // 20 页（每页 1 条）时中间是 2..19，共 18 个页码，但只渲染可视范围附近的一批
+  const inner = list.firstElementChild as HTMLElement
+  expect(inner.style.width).toBe('680px')
+  expect(list.style.width).toBe('148px')
+  expect(list.className).toContain('overflow-x-auto')
+  expect(list.className).toContain('scrollbar-width:none')
+  expect(screen.getByRole('button', { name: 'Go to page 2' })).toBeVisible()
+  expect(
+    screen.queryByRole('button', { name: 'Go to page 19' })
+  ).not.toBeInTheDocument()
+  expect(inner.querySelectorAll('button').length).toBeLessThan(18)
+
+  // 滚轮直接横向滚动
+  list.dispatchEvent(
+    new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true })
+  )
+  expect(list.scrollLeft).toBe(72)
+
+  // 滚到第 10 页附近再点击
+  list.scrollLeft = (10 - 2) * 38
+  fireEvent.scroll(list)
+  await user.click(screen.getByRole('button', { name: 'Go to page 10' }))
+  expect(screen.getByRole('button', { name: 'Go to page 10' })).toHaveAttribute(
+    'aria-current',
+    'page'
+  )
+})
+
 it('keeps page size selection available in the default layout', () => {
   render(<Fixture />)
   expect(screen.getByRole('combobox')).toBeVisible()

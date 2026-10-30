@@ -23,6 +23,7 @@ import {
   ChevronsLeft as DoubleArrowLeftIcon,
   ChevronsRight as DoubleArrowRightIcon,
 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -34,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { cn, getPageNumbers } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 
 type DataTablePaginationProps<TData> = {
   table: Table<TData>
@@ -46,6 +47,11 @@ const PAGE_SIZE_SELECT_ITEMS = PAGE_SIZE_OPTIONS.map((pageSize) => ({
   value: `${pageSize}`,
   label: pageSize,
 }))
+const PAGE_GAP = 4
+const VIEWPORT_PAGE_COUNT = 4
+const OVERSCAN_PAGES = 3
+// 滚轮滚动距离打个折，一格滚轮不会一下跳过太多页码
+const WHEEL_SCROLL_FACTOR = 0.6
 
 export function DataTablePagination<TData>({
   table,
@@ -57,11 +63,89 @@ export function DataTablePagination<TData>({
   const pageSize = pagination.pageSize
   const totalPages = table.getPageCount()
   const totalRows = table.getRowCount()
-  const pageNumbers = getPageNumbers(currentPage, totalPages)
-  const pageItems = pageNumbers.map((page, index) => ({
-    page,
-    key: page === '...' ? `gap-after-${pageNumbers[index - 1]}` : String(page),
-  }))
+  const middlePageCount = Math.max(0, totalPages - 2)
+  // 中间页码按同一宽度排版，虚拟滚动才能用固定步长算出可视范围
+  const pageDigits = String(Math.max(totalPages, 1)).length
+  const pageWidth = Math.max(32, pageDigits * 9 + 16)
+  const pageStep = pageWidth + PAGE_GAP
+  const trackWidth =
+    middlePageCount > 0
+      ? middlePageCount * pageWidth + (middlePageCount - 1) * PAGE_GAP
+      : 0
+  const maxViewportWidth =
+    VIEWPORT_PAGE_COUNT * pageWidth + (VIEWPORT_PAGE_COUNT - 1) * PAGE_GAP
+  const viewportWidth =
+    middlePageCount > 0 ? Math.min(maxViewportWidth, trackWidth) : 0
+
+  const [scrollLeft, setScrollLeft] = useState(0)
+  const pageListRef = useRef<HTMLDivElement>(null)
+
+  // 虚拟列表：只渲染可视范围附近的页码，滚到哪就换哪一批
+  const firstVisible = Math.floor(scrollLeft / pageStep)
+  const lastVisible = Math.floor((scrollLeft + viewportWidth - 1) / pageStep)
+  const visibleStart = Math.max(0, firstVisible - OVERSCAN_PAGES)
+  const visibleEnd = Math.min(middlePageCount - 1, lastVisible + OVERSCAN_PAGES)
+  const visibleMiddlePages: { index: number; page: number }[] = []
+  for (let index = visibleStart; index <= visibleEnd; index++) {
+    visibleMiddlePages.push({ index, page: index + 2 })
+  }
+
+  // 当前页变化时把滚动位置对准它，首尾页则贴住两端
+  useEffect(() => {
+    const list = pageListRef.current
+    if (!list || middlePageCount === 0) return
+    const maxScroll = Math.max(0, trackWidth - viewportWidth)
+    let target = 0
+    if (currentPage >= totalPages - 1) {
+      target = maxScroll
+    } else if (currentPage > 2) {
+      target = (currentPage - 2) * pageStep - (viewportWidth - pageWidth) / 2
+    }
+    target = Math.max(0, Math.min(target, maxScroll))
+    list.scrollLeft = target
+    setScrollLeft(target)
+  }, [
+    currentPage,
+    totalPages,
+    middlePageCount,
+    pageStep,
+    viewportWidth,
+    trackWidth,
+    pageWidth,
+  ])
+
+  // 垂直滚轮直接横向翻页
+  useEffect(() => {
+    const list = pageListRef.current
+    if (!list) return
+    const handleWheel = (event: WheelEvent) => {
+      if (event.deltaY === 0) return
+      event.preventDefault()
+      list.scrollLeft += event.deltaY * WHEEL_SCROLL_FACTOR
+      setScrollLeft(list.scrollLeft)
+    }
+    list.addEventListener('wheel', handleWheel, { passive: false })
+    return () => list.removeEventListener('wheel', handleWheel)
+  }, [middlePageCount])
+
+  const renderPage = (page: number) => (
+    <Button
+      key={page}
+      variant={currentPage === page ? 'default' : 'outline'}
+      aria-label={t('Go to page {{page}}', { page })}
+      aria-current={currentPage === page ? 'page' : undefined}
+      style={{ width: pageWidth }}
+      className={cn(
+        'h-8 min-w-8 shrink-0 px-2 tabular-nums',
+        currentPage === page
+          ? 'font-semibold'
+          : 'text-muted-foreground hover:text-foreground'
+      )}
+      onClick={() => table.setPageIndex(page - 1)}
+    >
+      {page}
+    </Button>
+  )
 
   if (compact) {
     return (
@@ -108,7 +192,7 @@ export function DataTablePagination<TData>({
       )}
       style={{ overflowClipMargin: 1 }}
     >
-      <div className='flex min-w-0 shrink-0 items-center gap-2 @xl/pagination:gap-3'>
+      <div className='flex min-w-0 items-center gap-2 @xl/pagination:gap-3'>
         <div className='flex shrink-0 items-baseline gap-1.5 text-xs font-medium whitespace-nowrap sm:text-sm'>
           <span className='text-muted-foreground/80'>{t('Total:')}</span>
           <span className='text-foreground tabular-nums'>
@@ -142,10 +226,10 @@ export function DataTablePagination<TData>({
           </Select>
         </div>
 
-        <div className='flex min-w-0 shrink-0 items-center gap-1 @lg/pagination:gap-1.5 @xl/pagination:gap-2'>
+        <div className='flex min-w-0 items-center gap-1 @lg/pagination:gap-1.5 @xl/pagination:gap-2'>
           <Button
             variant='outline'
-            className='text-muted-foreground hover:text-foreground disabled:text-muted-foreground/50 size-8 p-0 @max-lg/pagination:hidden'
+            className='text-muted-foreground hover:text-foreground disabled:text-muted-foreground/50 size-8 shrink-0 p-0 @max-lg/pagination:hidden'
             onClick={() => table.setPageIndex(0)}
             disabled={!table.getCanPreviousPage()}
           >
@@ -154,7 +238,7 @@ export function DataTablePagination<TData>({
           </Button>
           <Button
             variant='outline'
-            className='text-muted-foreground hover:text-foreground disabled:text-muted-foreground/50 size-8 p-0'
+            className='text-muted-foreground hover:text-foreground disabled:text-muted-foreground/50 size-8 shrink-0 p-0'
             onClick={() => table.previousPage()}
             disabled={!table.getCanPreviousPage()}
           >
@@ -162,35 +246,35 @@ export function DataTablePagination<TData>({
             <ChevronLeftIcon className='h-4 w-4' />
           </Button>
 
-          {pageItems.map(({ page: pageNumber, key }) => (
-            <div key={key} className='flex items-center'>
-              {pageNumber === '...' ? (
-                <span className='text-muted-foreground/60 px-0.5 text-sm @lg/pagination:px-1'>
-                  ...
-                </span>
-              ) : (
-                <Button
-                  variant={currentPage === pageNumber ? 'default' : 'outline'}
-                  className={cn(
-                    'h-8 min-w-8 px-2 tabular-nums',
-                    currentPage === pageNumber
-                      ? 'font-semibold'
-                      : 'text-muted-foreground hover:text-foreground'
-                  )}
-                  onClick={() => table.setPageIndex((pageNumber as number) - 1)}
-                >
-                  <span className='sr-only'>
-                    {t('Go to page {{page}}', { page: pageNumber })}
-                  </span>
-                  {pageNumber}
-                </Button>
-              )}
+          {totalPages > 0 && renderPage(1)}
+          {middlePageCount > 0 && (
+            <div
+              ref={pageListRef}
+              data-slot='pagination-pages'
+              onScroll={(event) =>
+                setScrollLeft(event.currentTarget.scrollLeft)
+              }
+              style={{ width: viewportWidth }}
+              className='relative min-w-0 shrink [scrollbar-width:none] overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden'
+            >
+              <div className='relative h-8' style={{ width: trackWidth }}>
+                {visibleMiddlePages.map(({ index, page }) => (
+                  <div
+                    key={page}
+                    className='absolute top-0'
+                    style={{ left: index * pageStep }}
+                  >
+                    {renderPage(page)}
+                  </div>
+                ))}
+              </div>
             </div>
-          ))}
+          )}
+          {totalPages > 1 && renderPage(totalPages)}
 
           <Button
             variant='outline'
-            className='text-muted-foreground hover:text-foreground disabled:text-muted-foreground/50 size-8 p-0'
+            className='text-muted-foreground hover:text-foreground disabled:text-muted-foreground/50 size-8 shrink-0 p-0'
             onClick={() => table.nextPage()}
             disabled={!table.getCanNextPage()}
           >
@@ -199,7 +283,7 @@ export function DataTablePagination<TData>({
           </Button>
           <Button
             variant='outline'
-            className='text-muted-foreground hover:text-foreground disabled:text-muted-foreground/50 size-8 p-0 @max-lg/pagination:hidden'
+            className='text-muted-foreground hover:text-foreground disabled:text-muted-foreground/50 size-8 shrink-0 p-0 @max-lg/pagination:hidden'
             onClick={() => table.setPageIndex(table.getPageCount() - 1)}
             disabled={!table.getCanNextPage()}
           >
