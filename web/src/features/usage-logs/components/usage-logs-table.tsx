@@ -32,6 +32,7 @@ import {
   getSelfSubscriptionFull,
 } from '@/features/subscriptions/api'
 import { useMediaQuery } from '@/hooks'
+import { useAutoRefresh } from '@/hooks/use-auto-refresh'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { createServerError } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
@@ -160,6 +161,8 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
     ],
   })
 
+  const autoRefresh = useAutoRefresh()
+
   const { data, isLoading, isFetching } = useQuery({
     queryKey: [
       'logs',
@@ -221,12 +224,12 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
     onColumnFiltersChange,
     manualPagination: true,
     manualFiltering: true,
-    totalCount: data?.total || 0,
-    ensurePageInRange,
-  })
     // 只有「费用」列在当前页数据上本地排序，其余列保持静态表头
     enableSorting: logCategory === 'common',
     withSortedRowModel: logCategory === 'common',
+    totalCount: data?.total || 0,
+    ensurePageInRange,
+  })
 
   const isCommon = logCategory === 'common'
 
@@ -255,7 +258,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       }
       toolbar={
         isCommon ? (
-          <CommonLogsFilterBar table={table} />
+          <CommonLogsFilterBar table={table} autoRefresh={autoRefresh} />
         ) : (
           <TaskLogsFilterBar table={table} logCategory={logCategory} />
         )

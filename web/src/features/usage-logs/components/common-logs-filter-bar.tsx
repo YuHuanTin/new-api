@@ -23,6 +23,7 @@ import { Eye, EyeOff } from 'lucide-react'
 import { useState, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { AutoRefreshButton } from '@/components/auto-refresh-button'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Combobox } from '@/components/ui/combobox'
@@ -41,6 +42,10 @@ import {
 } from '@/components/ui/tooltip'
 import { getGroups } from '@/features/users/api'
 import { useMediaQuery } from '@/hooks'
+import {
+  useAutoRefreshTick,
+  type AutoRefreshState,
+} from '@/hooks/use-auto-refresh'
 import { getUserGroups } from '@/lib/api'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
@@ -114,6 +119,7 @@ function buildSearchSourceKey(values: {
 
 interface CommonLogsFilterBarProps<TData> {
   table: Table<TData>
+  autoRefresh?: AutoRefreshState
 }
 
 export function CommonLogsFilterBar<TData>(
@@ -212,7 +218,7 @@ export function CommonLogsFilterBar<TData>(
   )
 
   const handleApply = useCallback(
-    (nextFilters: CommonLogFilters = filters) => {
+    (nextFilters: CommonLogFilters = filters, keepPage = false) => {
       const filterParams = buildSearchParams(nextFilters, 'common')
       navigate({
         to: '/usage-logs/$section',
@@ -220,15 +226,21 @@ export function CommonLogsFilterBar<TData>(
         search: {
           ...filterParams,
           type: [logType],
-          page: 1,
+          page: keepPage ? searchParams.page : 1,
         },
       })
       queryClient.invalidateQueries({ queryKey: ['logs'] })
       queryClient.invalidateQueries({ queryKey: ['usage-logs-stats'] })
       queryClient.invalidateQueries({ queryKey: ['usage-logs-token-stats'] })
     },
-    [filters, logType, navigate, queryClient]
+    [filters, logType, navigate, queryClient, searchParams.page]
   )
+
+  // 自动刷新到点就点一次「搜索」：同一条查询、同一套筛选，只是不把页码
+  // 拽回第一页
+  useAutoRefreshTick(props.autoRefresh?.interval ?? 0, () => {
+    handleApply(filters, true)
+  })
 
   const handleReset = useCallback(() => {
     const { start, end } = getDefaultTimeRange()
@@ -491,7 +503,17 @@ export function CommonLogsFilterBar<TData>(
       table={props.table}
       compactMobile
       stats={statsBar}
-      actionStart={sensitiveToggle}
+      actionStart={
+        <>
+          {props.autoRefresh && (
+            <AutoRefreshButton
+              interval={props.autoRefresh.interval}
+              onIntervalChange={props.autoRefresh.setInterval}
+            />
+          )}
+          {sensitiveToggle}
+        </>
+      }
       actionEnd={<ExportLogsDialog />}
       primaryFilters={
         <>
