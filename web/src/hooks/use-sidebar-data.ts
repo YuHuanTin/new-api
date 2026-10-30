@@ -32,6 +32,7 @@ import {
   Radio,
   ServerCog,
   Settings,
+  ShieldAlert,
   ShieldCheck,
   Tags,
   Ticket,
@@ -94,6 +95,12 @@ export function useSidebarData(): SidebarData {
             title: t('Usage Logs'),
             url: '/usage-logs/common',
             icon: FileText,
+          },
+          {
+            title: t('Exception Management'),
+            url: '/exception-logs',
+            icon: ShieldAlert,
+            requiredRole: ROLE.ADMIN,
           },
           {
             title: t('Audit Logs'),
