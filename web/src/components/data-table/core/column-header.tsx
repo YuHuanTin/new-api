@@ -39,16 +39,42 @@ type DataTableColumnHeaderProps<TData, TValue> =
   React.HTMLAttributes<HTMLDivElement> & {
     column: Column<TData, TValue>
     title: React.ReactNode
+    /** 点表头直接循环排序（数字列从降序开始，第三次点击取消），不弹下拉菜单。 */
+    clickToSort?: boolean
   }
 
 export function DataTableColumnHeader<TData, TValue>({
   column,
   title,
   className,
+  clickToSort = false,
 }: DataTableColumnHeaderProps<TData, TValue>) {
   const { t } = useTranslation()
   if (!column.getCanSort()) {
     return <div className={cn(className)}>{title}</div>
+  }
+
+  let sortIcon = <CaretSortIcon className='ms-2 h-4 w-4' />
+  if (column.getIsSorted() === 'desc') {
+    sortIcon = <ArrowDownIcon className='ms-2 h-4 w-4' />
+  } else if (column.getIsSorted() === 'asc') {
+    sortIcon = <ArrowUpIcon className='ms-2 h-4 w-4' />
+  }
+
+  if (clickToSort) {
+    return (
+      <div className={cn('flex items-center space-x-2', className)}>
+        <Button
+          variant='ghost'
+          size='sm'
+          className='-ms-3 h-8'
+          onClick={column.getToggleSortingHandler()}
+        >
+          <span>{title}</span>
+          {sortIcon}
+        </Button>
+      </div>
+    )
   }
 
   return (
@@ -64,13 +90,7 @@ export function DataTableColumnHeader<TData, TValue>({
           }
         >
           <span>{title}</span>
-          {column.getIsSorted() === 'desc' ? (
-            <ArrowDownIcon className='ms-2 h-4 w-4' />
-          ) : column.getIsSorted() === 'asc' ? (
-            <ArrowUpIcon className='ms-2 h-4 w-4' />
-          ) : (
-            <CaretSortIcon className='ms-2 h-4 w-4' />
-          )}
+          {sortIcon}
         </DropdownMenuTrigger>
         <DropdownMenuContent align='start'>
           <DropdownMenuItem onClick={() => column.toggleSorting(false)}>

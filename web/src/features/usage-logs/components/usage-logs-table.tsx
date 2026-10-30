@@ -224,6 +224,9 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
     totalCount: data?.total || 0,
     ensurePageInRange,
   })
+    // 只有「费用」列在当前页数据上本地排序，其余列保持静态表头
+    enableSorting: logCategory === 'common',
+    withSortedRowModel: logCategory === 'common',
 
   const isCommon = logCategory === 'common'
 

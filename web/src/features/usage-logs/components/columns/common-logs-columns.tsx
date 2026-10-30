@@ -21,6 +21,7 @@ import { GitBranch, Sparkles, KeyRound } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { DataTableColumnHeader } from '@/components/data-table'
 import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -771,7 +772,14 @@ export function useCommonLogsColumns(
       },
       {
         accessorKey: 'quota',
-        header: t('Cost'),
+        // 只排当前页，不重新请求后端；点表头循环 降序 → 升序 → 取消
+        header: ({ column }) => (
+          <DataTableColumnHeader
+            column={column}
+            title={t('Cost')}
+            clickToSort
+          />
+        ),
         cell: ({ row }) => {
           const log = row.original
           if (!isDisplayableLogType(log.type)) return null
@@ -786,6 +794,8 @@ export function useCommonLogsColumns(
             />
           )
         },
+        enableSorting: true,
+        sortingFn: 'basic',
       },
 
       {
@@ -900,7 +910,11 @@ export function useCommonLogsColumns(
       }
     )
 
-    return columns
+    // 只有「费用」列可以点表头排序，时间、渠道、用户等列保持静态表头
+    return columns.map((column): ColumnDef<UsageLog> => ({
+      ...column,
+      enableSorting: column.enableSorting === true,
+    }))
     // Log formatters read currency settings from the store.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [t, isAdmin, isRoot, showBillingSource, currency])

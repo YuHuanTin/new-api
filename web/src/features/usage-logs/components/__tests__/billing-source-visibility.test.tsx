@@ -56,19 +56,31 @@ async function renderLogs(props: {
   role: number
   enabledPlans: boolean[]
   activeSubscription: boolean
+  quotas?: number[]
+  models?: string[]
+  readyText?: string
 }) {
   useAuthStore
     .getState()
     .auth.setUser({ id: 1, username: 'tester', role: props.role })
-  const records = ['wallet', 'subscription'].map((source, index) =>
+  const sources = ['wallet', 'subscription']
+  const recordCount = Math.max(
+    sources.length,
+    props.quotas?.length ?? 0,
+    props.models?.length ?? 0
+  )
+  const records = Array.from({ length: recordCount }, (_, index) =>
     usageLogSchema.parse({
       id: index + 1,
       user_id: 1,
       created_at: 1788840000,
       type: 2,
       content: '',
-      quota: 5000,
-      other: JSON.stringify({ billing_source: source }),
+      model_name: props.models?.[index] ?? 'gpt-5.1',
+      quota: props.quotas?.[index] ?? 5000,
+      other: JSON.stringify({
+        billing_source: sources[index % sources.length],
+      }),
     })
   )
   vi.spyOn(api, 'get').mockImplementation(async (url) => {
@@ -116,7 +128,7 @@ async function renderLogs(props: {
       </UsageLogsProvider>
     </QueryClientProvider>
   )
-  await screen.findAllByText('$0.01')
+  await screen.findAllByText(props.readyText ?? '$0.01')
   await waitFor(() => expect(client.isFetching()).toBe(0))
   return client
 }
@@ -193,4 +205,62 @@ test('uses personal subscriptions when an admin switches to only-self view', asy
 
   await user.click(screen.getByRole('button', { name: 'Switch scope' }))
   expect(await screen.findByRole('img', { name: 'Wallet' })).toBeVisible()
+})
+
+// 只有「费用」列可以点表头排序，其余列保持静态表头
+test('keeps only the cost column sortable', async () => {
+  await renderLogs({
+    role: ROLE.ADMIN,
+    enabledPlans: [],
+    activeSubscription: false,
+  })
+
+  expect(screen.getByRole('button', { name: 'Cost' })).toBeVisible()
+  for (const title of ['Time', 'Channel', 'User', 'Model', 'Timing']) {
+    expect(
+      screen.queryByRole('button', { name: title })
+    ).not.toBeInTheDocument()
+  }
+})
+
+// 费用列按当前页数据在浏览器里排序：点表头循环降序 → 升序 → 恢复原样，
+// 不弹下拉菜单，也不重新请求后端
+test('cycles cost sorting on header clicks without refetching', async () => {
+  const user = userEvent.setup()
+  const client = await renderLogs({
+    role: ROLE.ADMIN,
+    enabledPlans: [],
+    activeSubscription: false,
+    quotas: [2000, 5000, 1000],
+    models: ['mid-model', 'pricey-model', 'cheap-model'],
+    readyText: '$0.01',
+  })
+
+  const modelOrder = () =>
+    screen
+      .getAllByText(/mid-model|pricey-model|cheap-model/)
+      .map((node) => node.textContent)
+
+  expect(modelOrder()).toEqual(['mid-model', 'pricey-model', 'cheap-model'])
+
+  // 数字列默认先降序：第一下最贵在前，第二下反过来，第三下回到原始顺序
+  await user.click(screen.getByRole('button', { name: 'Cost' }))
+  await waitFor(() =>
+    expect(modelOrder()).toEqual(['pricey-model', 'mid-model', 'cheap-model'])
+  )
+
+  await user.click(screen.getByRole('button', { name: 'Cost' }))
+  await waitFor(() =>
+    expect(modelOrder()).toEqual(['cheap-model', 'mid-model', 'pricey-model'])
+  )
+
+  await user.click(screen.getByRole('button', { name: 'Cost' }))
+  await waitFor(() =>
+    expect(modelOrder()).toEqual(['mid-model', 'pricey-model', 'cheap-model'])
+  )
+
+  expect(
+    screen.queryByRole('menuitem', { name: 'Desc' })
+  ).not.toBeInTheDocument()
+  expect(client.isFetching()).toBe(0)
 })
