@@ -2507,6 +2507,7 @@
     "Fail Reason Details": "失敗理由の詳細",
     "failed": "失敗",
     "Failed": "失敗",
+    "Failed Request": "失敗したリクエスト",
     "Failed to {{action}} user": "ユーザーの{{action}}に失敗しました",
     "Failed to adjust quota": "クォータの調整に失敗しました",
     "Failed to apply overwrite.": "オーバーライトの適用に失敗しました。",

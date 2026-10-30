@@ -28,10 +28,12 @@ func logFilterFromQuery(c *gin.Context, admin bool) model.LogFilter {
 		Group:             c.Query("group"),
 		RequestId:         c.Query("request_id"),
 		UpstreamRequestId: c.Query("upstream_request_id"),
+		ErrorCode:         c.Query("error_code"),
 	}
 	if admin {
 		filter.Username = c.Query("username")
 		filter.Channel, _ = strconv.Atoi(c.Query("channel"))
+		filter.FailedOnly = c.Query("failed_only") == "1"
 	}
 	return filter
 }
@@ -61,6 +63,8 @@ func GetAllLogs(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	// 列表不带抓包现场（解压一条最多 4 MB），详情弹窗按需拉取
+	model.StripLogAnomalyCapture(logs)
 	if c.GetInt("role") < common.RoleRootUser {
 		model.FormatAdminLogs(logs)
 	} else {

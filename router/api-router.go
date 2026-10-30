@@ -337,6 +337,8 @@ func SetApiRouter(router *gin.Engine) {
 		exceptionRoute.Use(middleware.AdminAuth())
 		exceptionRoute.GET("/cyber_guard", controller.GetCyberGuardSetting)
 		exceptionRoute.PATCH("/cyber_guard", controller.UpdateCyberGuardSetting)
+		exceptionRoute.POST("/clear_capture", controller.ClearExceptionCapture)
+		exceptionRoute.GET("/capture", controller.GetExceptionCapture)
 		exceptionRoute.GET("/cyber_guard/channels", controller.ListCyberGuardChannels)
 		exceptionRoute.PATCH("/cyber_guard/channel", controller.SetChannelCyberGuard)
 

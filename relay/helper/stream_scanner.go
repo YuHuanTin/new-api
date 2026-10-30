@@ -129,6 +129,10 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		writer.stop()
 	}
 
+	// 流式请求的 HTTP 状态码和响应头也留下来：超时或断连时上游没有给出错误帧，
+	// 异常管理只有靠它们才能说明上游当时回了什么。只存引用，不复制、不碰响应体
+	service.RecordUpstreamResponse(c, resp, nil)
+
 	// 无条件新建 StreamStatus
 	info.StreamStatus = relaycommon.NewStreamStatus()
 

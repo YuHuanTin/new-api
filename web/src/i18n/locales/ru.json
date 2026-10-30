@@ -2507,6 +2507,7 @@
     "Fail Reason Details": "Детали причины сбоя",
     "failed": "ошибка",
     "Failed": "Неудача",
+    "Failed Request": "Неудачный запрос",
     "Failed to {{action}} user": "Не удалось выполнить {{action}} для пользователя",
     "Failed to adjust quota": "Не удалось изменить квоту",
     "Failed to apply overwrite.": "Не удалось применить перезапись.",

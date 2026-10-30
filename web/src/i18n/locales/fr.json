@@ -2507,6 +2507,7 @@
     "Fail Reason Details": "Détails de la raison de l'échec",
     "failed": "échoué",
     "Failed": "Échec",
+    "Failed Request": "Requête en échec",
     "Failed to {{action}} user": "Échec de l'action {{action}} sur l'utilisateur",
     "Failed to adjust quota": "Échec de l'ajustement du quota",
     "Failed to apply overwrite.": "Échec de l'application de l'écrasement.",

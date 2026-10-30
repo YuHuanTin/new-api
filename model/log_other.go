@@ -14,6 +14,8 @@ const (
 	logOtherRootInfoKey     = "root_info"
 	logOtherAuditInfoKey    = "audit_info"
 	logOtherContentPartsKey = "content_parts"
+	// logOtherAnomalyKey 是异常现场在 admin_info 里的键，写入时整块压缩
+	logOtherAnomalyKey = "anomaly"
 )
 
 // legacySensitiveLogOtherKeys are historical top-level fields that must never
@@ -263,6 +265,9 @@ func formatLogOtherJSON(value string, visibility logOtherVisibility) string {
 				delete(values, logOtherRootInfoKey)
 				changed = true
 			}
+		}
+		if restoreCompressedAnomaly(values) {
+			changed = true
 		}
 	}
 

@@ -486,6 +486,10 @@ type LogFilter struct {
 	Group             string
 	RequestId         string
 	UpstreamRequestId string
+	// FailedOnly 只看失败的请求：失败日志行，以及流状态判定为失败的消耗日志行
+	FailedOnly bool
+	// ErrorCode 按上游错误码过滤，匹配日志 other 里的 error_code
+	ErrorCode string
 }
 
 func (f LogFilter) apply(tx *gorm.DB) (*gorm.DB, error) {
@@ -493,6 +497,7 @@ func (f LogFilter) apply(tx *gorm.DB) (*gorm.DB, error) {
 	if f.Type != LogTypeUnknown {
 		tx = tx.Where("logs.type = ?", f.Type)
 	}
+	tx = f.applyAnomalyFilter(tx)
 	if tx, err = applyExplicitLogTextFilter(tx, "logs.model_name", f.ModelName); err != nil {
 		return nil, err
 	}

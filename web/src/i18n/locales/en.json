@@ -2507,6 +2507,7 @@
     "Fail Reason Details": "Fail Reason Details",
     "failed": "failed",
     "Failed": "Failed",
+    "Failed Request": "Failed Request",
     "Failed to {{action}} user": "Failed to {{action}} user",
     "Failed to adjust quota": "Failed to adjust quota",
     "Failed to apply overwrite.": "Failed to apply overwrite.",

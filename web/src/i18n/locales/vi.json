@@ -2507,6 +2507,7 @@
     "Fail Reason Details": "Chi tiết lý do thất bại",
     "failed": "thất bại",
     "Failed": "Thất bại",
+    "Failed Request": "Yêu cầu thất bại",
     "Failed to {{action}} user": "Không thể {{action}} người dùng",
     "Failed to adjust quota": "Không thể điều chỉnh hạn mức",
     "Failed to apply overwrite.": "Không thể áp dụng ghi đè.",

@@ -2507,6 +2507,7 @@
     "Fail Reason Details": "失败原因详情",
     "failed": "已失败",
     "Failed": "失败",
+    "Failed Request": "失败请求",
     "Failed to {{action}} user": "{{action}}用户失败",
     "Failed to adjust quota": "调整额度失败",
     "Failed to apply overwrite.": "应用覆盖失败。",

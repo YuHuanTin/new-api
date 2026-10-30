@@ -2,10 +2,10 @@ package service
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -14,6 +14,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+// newRelayErrorContext 造一个用于测试错误处理的 gin 上下文
+func newRelayErrorContext() *gin.Context {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	return c
+}
 
 func TestResetStatusCode(t *testing.T) {
 	t.Parallel()
@@ -84,7 +90,7 @@ func TestRelayErrorHandlerTruncatesInvalidJSONBodyInLog(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
 
-	newAPIError := RelayErrorHandler(context.Background(), resp, false)
+	newAPIError := RelayErrorHandler(newRelayErrorContext(), resp, false)
 
 	require.NotNil(t, newAPIError)
 	require.Equal(t, "bad response status code 500", newAPIError.Error())
@@ -101,7 +107,7 @@ func TestRelayErrorHandlerKeepsStructuredErrorMessage(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
 
-	newAPIError := RelayErrorHandler(context.Background(), resp, false)
+	newAPIError := RelayErrorHandler(newRelayErrorContext(), resp, false)
 
 	require.NotNil(t, newAPIError)
 	require.Equal(t, message, newAPIError.Error())
@@ -115,7 +121,7 @@ func TestRelayErrorHandlerKeepsOpenAIErrorMessage(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
 
-	newAPIError := RelayErrorHandler(context.Background(), resp, false)
+	newAPIError := RelayErrorHandler(newRelayErrorContext(), resp, false)
 
 	require.NotNil(t, newAPIError)
 	require.Equal(t, message, newAPIError.Error())
@@ -142,7 +148,7 @@ func TestRelayErrorHandlerKeepsInvalidJSONBodyInDebugLog(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
 
-	newAPIError := RelayErrorHandler(context.Background(), resp, false)
+	newAPIError := RelayErrorHandler(newRelayErrorContext(), resp, false)
 
 	require.NotNil(t, newAPIError)
 	require.NotContains(t, logBuffer.String(), "[truncated")

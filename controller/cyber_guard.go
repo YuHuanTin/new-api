@@ -2,6 +2,7 @@ package controller
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/QuantumNous/new-api/model"
 
@@ -27,6 +28,50 @@ func UpdateCyberGuardSetting(c *gin.Context) {
 		return
 	}
 	GetCyberGuardSetting(c)
+}
+
+// maxClearExceptionCaptureIDs 限制一次清理的行数，避免一次写入过多行
+const maxClearExceptionCaptureIDs = 200
+
+// ClearExceptionCapture 清除选中日志保存的抓包现场，日志记录本身保留
+func ClearExceptionCapture(c *gin.Context) {
+	var request struct {
+		IDs []int `json:"ids"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil || len(request.IDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "ids is required"})
+		return
+	}
+	if len(request.IDs) > maxClearExceptionCaptureIDs {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "too many ids"})
+		return
+	}
+	cleared, err := model.ClearLogAnomalyCapture(request.IDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"cleared": cleared}})
+}
+
+// GetExceptionCapture 按需读取一条日志保存的抓包现场。日志列表不带这块数据
+// （一条最多 4 MB），只有打开详情时才拉取
+func GetExceptionCapture(c *gin.Context) {
+	id, err := strconv.Atoi(c.Query("id"))
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid id"})
+		return
+	}
+	anomaly, found, err := model.GetLogAnomalyCapture(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "log not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"anomaly": anomaly}})
 }
 
 // ListCyberGuardChannels 返回开启了 cyber 策略计数的渠道，异常管理用来展示和快捷关闭
