@@ -30,7 +30,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { Progress } from '@/components/ui/progress'
 import {
   Tooltip,
   TooltipContent,
@@ -778,11 +777,20 @@ export function useCommonLogsColumns(
               )}
               {cacheRate !== null && (
                 <div className='flex items-center gap-1.5'>
-                  <Progress
-                    value={cacheRate}
+                  <div
+                    role='progressbar'
                     aria-label={t('Cache Rate')}
-                    className='w-20 shrink-0 gap-0 [&>[data-slot=progress-track]]:h-0.5'
-                  />
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(cacheRate)}
+                    className='relative h-[2.4px] w-20 shrink-0 overflow-hidden rounded-[1px]'
+                  >
+                    <div className='bg-destructive absolute inset-0' />
+                    <div
+                      className='absolute inset-y-0 left-0 bg-sky-500'
+                      style={{ width: `${cacheRate}%` }}
+                    />
+                  </div>
                   <span className='text-muted-foreground/60 text-[10px] tabular-nums'>
                     {formatPercentOneDecimal(cacheRate, locale)}
                   </span>

@@ -94,6 +94,25 @@ describe('common usage log token column', () => {
     expect(screen.getByText('97.4%')).toBeVisible()
   })
 
+  it('fills the cache bar to the reported cache rate', () => {
+    const log = usageLogSchema.parse({
+      id: 1,
+      user_id: 1,
+      created_at: 1,
+      type: 2,
+      content: '',
+      prompt_tokens: 1000,
+      completion_tokens: 30,
+      other: JSON.stringify({ cache_tokens: 250 }),
+    })
+
+    render(<TokenColumnView log={log} />)
+
+    const bar = screen.getByLabelText('Cache Rate')
+    expect(bar).toHaveAttribute('aria-valuenow', '25')
+    expect(bar.lastElementChild).toHaveStyle({ width: '25%' })
+  })
+
   it('shows an empty cache bar when the request read nothing from cache', () => {
     const log = usageLogSchema.parse({
       id: 1,
