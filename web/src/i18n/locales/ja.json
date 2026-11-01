@@ -1037,6 +1037,7 @@
     "Caps the response length": "応答の長さを制限します",
     "Capture Evidence": "キャプチャデータ",
     "Capture setting saved": "キャプチャ設定を保存しました",
+    "Captured data available": "キャプチャデータがあります",
     "Captured data is deleted automatically after the retention period": "キャプチャデータは保持日数を過ぎると自動削除されます",
     "Clear all captured data?": "すべてのキャプチャデータを削除しますか？",
     "Failed to save capture setting": "キャプチャ設定の保存に失敗しました",

@@ -34,7 +34,7 @@ func StripLogAnomalyCapture(logs []*Log) {
 		if log == nil {
 			continue
 		}
-		if other, changed := stripLogAnomalyCapture(log.Other); changed {
+		if other, changed := stripLogAnomalyCaptureForList(log.Other); changed {
 			log.Other = other
 		}
 	}

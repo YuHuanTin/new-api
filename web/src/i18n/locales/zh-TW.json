@@ -1037,6 +1037,7 @@
     "Caps the response length": "限制回覆長度",
     "Capture Evidence": "抓包資料",
     "Capture setting saved": "抓包設定已儲存",
+    "Captured data available": "有抓包資料",
     "Captured data is deleted automatically after the retention period": "抓包資料超過保留天數後自動刪除",
     "Clear all captured data?": "清理全部封包資料？",
     "Failed to save capture setting": "儲存抓包設定失敗",

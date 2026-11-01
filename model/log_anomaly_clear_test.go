@@ -58,6 +58,7 @@ func TestClearLogAnomalyCaptureKeepsTheLogRow(t *testing.T) {
 	var stored Log
 	require.NoError(t, db.First(&stored, log.Id).Error)
 	assert.NotContains(t, stored.Other, "anomaly")
+	assert.NotContains(t, stored.Other, logOtherAnomalyCapturedKey, "清理后不留抓包标记")
 	assert.Contains(t, stored.Other, "cache_tokens")
 	assert.Equal(t, "boom", stored.Content, "日志记录本身保留")
 
@@ -91,8 +92,13 @@ func TestGetLogAnomalyCaptureReadsOnDemand(t *testing.T) {
 
 	listed := []*Log{{Id: log.Id, Other: log.Other}}
 	StripLogAnomalyCapture(listed)
-	assert.NotContains(t, listed[0].Other, logOtherAnomalyKey)
-	assert.Contains(t, listed[0].Other, "request_policy", "其它管理员字段留在列表里")
+	listedOther, err := common.StrToMap(listed[0].Other)
+	require.NoError(t, err)
+	listedAdminInfo, ok := listedOther[logOtherAdminInfoKey].(map[string]any)
+	require.True(t, ok)
+	assert.NotContains(t, listedAdminInfo, logOtherAnomalyKey, "列表不返回抓包现场")
+	assert.Equal(t, true, listedAdminInfo[logOtherAnomalyCapturedKey], "列表保留有抓包的标记")
+	assert.Contains(t, listedAdminInfo, "request_policy", "其它管理员字段留在列表里")
 
 	anomaly, found, err := GetLogAnomalyCapture(LogLocator{Id: log.Id})
 	require.NoError(t, err)

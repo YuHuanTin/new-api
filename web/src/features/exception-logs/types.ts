@@ -46,6 +46,7 @@ export interface ExceptionLogOther {
   stream_status?: ExceptionLogStreamStatus
   admin_info?: {
     anomaly?: ExceptionLogAnomaly
+    anomaly_captured?: boolean
     use_channel?: string[]
     // 与「日志详情」的「请求策略决策」是同一份记录
     request_policy?: PolicyEvent[]

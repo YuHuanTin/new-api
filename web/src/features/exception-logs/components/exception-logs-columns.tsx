@@ -149,15 +149,21 @@ export function useExceptionLogsColumns(
       {
         id: 'actions',
         header: '',
-        cell: ({ row }) => (
-          <Button
-            variant='outline'
-            size='sm'
-            onClick={() => onOpenDetails(row.original)}
-          >
-            {t('Details')}
-          </Button>
-        ),
+        cell: ({ row }) => {
+          const hasCapture =
+            parseExceptionLogOther(row.original.other).admin_info
+              ?.anomaly_captured === true
+          return (
+            <Button
+              variant={hasCapture ? 'default' : 'outline'}
+              size='sm'
+              title={hasCapture ? t('Captured data available') : undefined}
+              onClick={() => onOpenDetails(row.original)}
+            >
+              {t('Details')}
+            </Button>
+          )
+        },
         enableHiding: false,
         size: 100,
       },

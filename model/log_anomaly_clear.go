@@ -140,6 +140,15 @@ func clearAllAnomalyCapture(db *gorm.DB, clickHouse bool, createdBefore int64) (
 // stripLogAnomalyCapture 从 logs.other 里去掉管理员可见的 anomaly，其它字段原样
 // 保留。存进去的是压缩过的字符串，这里直接丢掉即可，不需要解开
 func stripLogAnomalyCapture(other string) (string, bool) {
+	return stripLogAnomalyCaptureJSON(other, false)
+}
+
+// stripLogAnomalyCaptureForList 剥离现场并留下 anomaly_captured，供列表提示
+func stripLogAnomalyCaptureForList(other string) (string, bool) {
+	return stripLogAnomalyCaptureJSON(other, true)
+}
+
+func stripLogAnomalyCaptureJSON(other string, markCaptured bool) (string, bool) {
 	if other == "" || !strings.Contains(other, logOtherAnomalyKey) {
 		return other, false
 	}
@@ -159,6 +168,9 @@ func stripLogAnomalyCapture(other string) (string, bool) {
 		return other, false
 	}
 	delete(adminInfo, logOtherAnomalyKey)
+	if markCaptured {
+		adminInfo[logOtherAnomalyCapturedKey] = json.RawMessage("true")
+	}
 	if len(adminInfo) == 0 {
 		delete(values, logOtherAdminInfoKey)
 	} else {

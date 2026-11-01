@@ -16,6 +16,8 @@ const (
 	logOtherContentPartsKey = "content_parts"
 	// logOtherAnomalyKey 是异常现场在 admin_info 里的键，写入时整块压缩
 	logOtherAnomalyKey = "anomaly"
+	// logOtherAnomalyCapturedKey 标记这条日志有抓包，列表剥离现场后保留
+	logOtherAnomalyCapturedKey = "anomaly_captured"
 )
 
 // legacySensitiveLogOtherKeys are historical top-level fields that must never

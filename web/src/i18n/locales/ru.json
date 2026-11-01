@@ -1037,6 +1037,7 @@
     "Caps the response length": "Ограничивает длину ответа",
     "Capture Evidence": "Захваченные данные",
     "Capture setting saved": "Настройка захвата сохранена",
+    "Captured data available": "Есть захваченные данные",
     "Captured data is deleted automatically after the retention period": "Захваченные данные удаляются автоматически по истечении срока хранения",
     "Clear all captured data?": "Очистить все сохранённые данные захвата?",
     "Failed to save capture setting": "Не удалось сохранить настройку захвата",
