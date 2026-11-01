@@ -84,11 +84,27 @@ func clearLogAnomalyCapture(createdBefore int64) (int64, error) {
 	return cleared, nil
 }
 
-// clearAllAnomalyCapture 按游标分批清理。SQL 用自增 id 做游标，ClickHouse 的
-// id 恒为 0，只能用建表排序键 (created_at, request_id)；游标保证解析不了的
-// 行也不会让循环卡住。createdBefore 大于 0 时只处理更早的日志
+// clearAllAnomalyCapture 逐行清理带抓包现场的行
 func clearAllAnomalyCapture(db *gorm.DB, clickHouse bool, createdBefore int64) (int64, error) {
 	var cleared int64
+	err := forEachAnomalyCaptureRow(db, clickHouse, createdBefore, func(log *Log, locator LogLocator) error {
+		other, changed := stripLogAnomalyCapture(log.Other)
+		if !changed {
+			return nil
+		}
+		if err := updateLogOtherColumn(db, locator, other); err != nil {
+			return err
+		}
+		cleared++
+		return nil
+	})
+	return cleared, err
+}
+
+// forEachAnomalyCaptureRow 按游标分批遍历带抓包现场的日志。SQL 用自增 id 做
+// 游标，ClickHouse 的 id 恒为 0，只能用建表排序键 (created_at, request_id)；
+// 游标保证解析不了的行也不会让循环卡住。createdBefore 大于 0 时只看更早的日志
+func forEachAnomalyCaptureRow(db *gorm.DB, clickHouse bool, createdBefore int64, fn func(log *Log, locator LogLocator) error) error {
 	lastID := 0
 	var lastCreatedAt int64
 	lastRequestID := ""
@@ -111,10 +127,10 @@ func clearAllAnomalyCapture(db *gorm.DB, clickHouse bool, createdBefore int64) (
 			query = query.Where("id > ?", lastID).Order("id")
 		}
 		if err := query.Limit(clearAllAnomalyCaptureBatchSize).Find(&logs).Error; err != nil {
-			return cleared, err
+			return err
 		}
 		if len(logs) == 0 {
-			return cleared, nil
+			return nil
 		}
 		for _, log := range logs {
 			var locator LogLocator
@@ -125,14 +141,9 @@ func clearAllAnomalyCapture(db *gorm.DB, clickHouse bool, createdBefore int64) (
 				lastID = log.Id
 				locator = LogLocator{Id: log.Id}
 			}
-			other, changed := stripLogAnomalyCapture(log.Other)
-			if !changed {
-				continue
+			if err := fn(log, locator); err != nil {
+				return err
 			}
-			if err := updateLogOtherColumn(db, locator, other); err != nil {
-				return cleared, err
-			}
-			cleared++
 		}
 	}
 }

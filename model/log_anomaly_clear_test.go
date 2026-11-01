@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -179,13 +180,18 @@ func TestGetLogAnomalyCaptureUsageCountsAnomalyBytes(t *testing.T) {
 		other.SetAdmin(logOtherAnomalyKey, anomaly)
 		require.NoError(t, db.Create(&Log{Type: LogTypeError, Other: other.JSONString()}).Error)
 	}
+	// 旧数据的现场是对象而不是压缩字符串，按原始 JSON 文本计长度
+	legacy := `{"request_url":"https://old.example.com"}`
+	legacyOther := NewLogOther()
+	legacyOther.SetAdmin(logOtherAnomalyKey, json.RawMessage(legacy))
+	require.NoError(t, db.Create(&Log{Type: LogTypeError, Other: legacyOther.JSONString()}).Error)
 	require.NoError(t, db.Create(&Log{Type: LogTypeError, Other: `{"public":{"cache_tokens":10}}`}).Error)
 	require.NoError(t, db.Create(&Log{Type: LogTypeError, Other: `{"admin_info":{"anomaly":`}).Error)
 
 	usage, err := GetLogAnomalyCaptureUsage()
 	require.NoError(t, err)
-	assert.EqualValues(t, 2, usage.Records, "只统计有抓包的行")
-	assert.EqualValues(t, len(first)+len(second), usage.Bytes, "按抓包内容的字节数累加")
+	assert.EqualValues(t, 3, usage.Records, "只统计有抓包的行")
+	assert.EqualValues(t, len(first)+len(second)+len(legacy), usage.Bytes, "按抓包内容的字节数累加")
 }
 
 // 按保留天数清理时只动更早的日志，新日志的抓包保留

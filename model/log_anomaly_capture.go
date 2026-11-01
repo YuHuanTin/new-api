@@ -1,6 +1,9 @@
 package model
 
 import (
+	"encoding/json"
+	"strings"
+
 	"github.com/QuantumNous/new-api/common"
 )
 
@@ -46,29 +49,52 @@ type LogAnomalyCaptureUsage struct {
 	Bytes   int64 `json:"bytes"`
 }
 
-// GetLogAnomalyCaptureUsage 统计抓包数据的条数和占用字节数。抓包内容在
-// admin_info.anomaly 里，按各数据库自带的 JSON 函数在库里直接聚合，不把现场
-// 读到内存，也不需要额外建表或索引
+// GetLogAnomalyCaptureUsage 统计抓包数据的条数和占用字节数。现场在
+// admin_info.anomaly 里，按日志行分批解析，不依赖各数据库的 JSON 函数，
+// 解析不了的行直接跳过，也不需要额外建表或索引。统计会扫一遍 logs 表，
+// 只给管理员面板按需调用
 func GetLogAnomalyCaptureUsage() (LogAnomalyCaptureUsage, error) {
 	var usage LogAnomalyCaptureUsage
-	var columns, condition string
-	switch common.LogDatabaseType() {
-	case common.DatabaseTypeMySQL:
-		columns = "COUNT(*) AS records, COALESCE(SUM(LENGTH(JSON_UNQUOTE(JSON_EXTRACT(other, '$.admin_info.anomaly')))), 0) AS bytes"
-		condition = "JSON_VALID(other) AND JSON_EXTRACT(other, '$.admin_info.anomaly') IS NOT NULL"
-	case common.DatabaseTypePostgreSQL:
-		columns = "COUNT(*) AS records, COALESCE(SUM(octet_length(other::jsonb #>> '{admin_info,anomaly}')), 0) AS bytes"
-		condition = "jsonb_typeof(other::jsonb -> 'admin_info' -> 'anomaly') = 'string'"
-	case common.DatabaseTypeClickHouse:
-		columns = "count() AS records, sum(length(JSONExtractString(other, 'admin_info', 'anomaly'))) AS bytes"
-		condition = "JSONHas(other, 'admin_info')"
-	default:
-		columns = "COUNT(*) AS records, COALESCE(SUM(LENGTH(CAST(json_extract(other, '$.admin_info.anomaly') AS BLOB))), 0) AS bytes"
-		condition = "json_valid(other) AND json_extract(other, '$.admin_info.anomaly') IS NOT NULL"
-	}
-	err := LOG_DB.Table("logs").Select(columns).Where(condition).
-		Row().Scan(&usage.Records, &usage.Bytes)
+	err := forEachAnomalyCaptureRow(LOG_DB, common.UsingLogDatabase(common.DatabaseTypeClickHouse), 0,
+		func(log *Log, _ LogLocator) error {
+			size, ok := logAnomalyCaptureSize(log.Other)
+			if !ok {
+				return nil
+			}
+			usage.Records++
+			usage.Bytes += size
+			return nil
+		})
 	return usage, err
+}
+
+// logAnomalyCaptureSize 取出 admin_info.anomaly 保存内容的字节数，解析不了时返回 false
+func logAnomalyCaptureSize(other string) (int64, bool) {
+	if other == "" || !strings.Contains(other, logOtherAnomalyKey) {
+		return 0, false
+	}
+	var values map[string]json.RawMessage
+	if err := common.UnmarshalJsonStr(other, &values); err != nil {
+		return 0, false
+	}
+	rawAdminInfo, ok := values[logOtherAdminInfoKey]
+	if !ok {
+		return 0, false
+	}
+	var adminInfo map[string]json.RawMessage
+	if err := common.Unmarshal(rawAdminInfo, &adminInfo); err != nil {
+		return 0, false
+	}
+	rawAnomaly, ok := adminInfo[logOtherAnomalyKey]
+	if !ok {
+		return 0, false
+	}
+	var anomaly string
+	if err := common.Unmarshal(rawAnomaly, &anomaly); err != nil {
+		// 旧数据的现场是对象，按原始 JSON 文本计长度
+		return int64(len(rawAnomaly)), true
+	}
+	return int64(len(anomaly)), true
 }
 
 // GetLogAnomalyCapture 返回解压后的抓包现场；found 为 false 表示日志不存在
