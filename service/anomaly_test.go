@@ -36,10 +36,15 @@ func TestAppendAnomalyInfoCapturesRequestAndUpstreamResponse(t *testing.T) {
 		strings.NewReader(`{"model":"gpt-5.1","messages":[]}`), 1024)))
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Request.Header.Set("Authorization", "Bearer secret-token")
+	c.Request.Header.Add("X-Trace", "a")
+	c.Request.Header.Add("X-Trace", "b")
 
 	upstream := &http.Response{
 		StatusCode: http.StatusBadRequest,
-		Header:     http.Header{"Content-Type": []string{"application/json"}, "Set-Cookie": []string{"session=abc"}},
+		Header: http.Header{
+			"Content-Type": []string{"application/json"},
+			"Set-Cookie":   []string{"session=abc", "theme=dark"},
+		},
 	}
 	RecordUpstreamResponse(c, upstream, []byte(`{"error":{"code":"cyber_policy"}}`))
 
@@ -60,13 +65,14 @@ func TestAppendAnomalyInfoCapturesRequestAndUpstreamResponse(t *testing.T) {
 
 	headers, ok := anomaly["request_headers"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "Bearer secret-token", headers["Authorization"], "请求头原样留存")
-	assert.Equal(t, "application/json", headers["Content-Type"])
+	assert.Equal(t, []any{"Bearer secret-token"}, headers["Authorization"], "请求头原样留存")
+	assert.Equal(t, []any{"application/json"}, headers["Content-Type"])
+	assert.Equal(t, []any{"a", "b"}, headers["X-Trace"], "同名多值不合并")
 
 	upstreamHeaders, ok := anomaly["upstream_headers"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "session=abc", upstreamHeaders["Set-Cookie"], "响应头原样留存")
-	assert.Equal(t, "application/json", upstreamHeaders["Content-Type"])
+	assert.Equal(t, []any{"session=abc", "theme=dark"}, upstreamHeaders["Set-Cookie"], "响应头原样留存")
+	assert.Equal(t, []any{"application/json"}, upstreamHeaders["Content-Type"])
 }
 
 // 流式请求的 HTTP 状态码是 200，失败帧才是真正的拒绝；HTTP 层已经有响应体时
@@ -81,7 +87,7 @@ func TestRecordUpstreamStreamBodyKeepsTheFailingFrame(t *testing.T) {
 	anomaly := restoredAnomaly(t, other.JSONString())
 	assert.Contains(t, anomaly["upstream_body"], "cyber_policy")
 	assert.EqualValues(t, http.StatusOK, anomaly["upstream_status"], "流式请求的 HTTP 层状态码也要留下")
-	assert.Equal(t, map[string]any{"X-Upstream": "sub2api"}, anomaly["upstream_headers"])
+	assert.Equal(t, map[string]any{"X-Upstream": []any{"sub2api"}}, anomaly["upstream_headers"])
 
 	RecordUpstreamResponse(c, &http.Response{StatusCode: http.StatusBadGateway, Header: http.Header{}}, []byte("bad gateway"))
 	other = model.NewLogOther()
@@ -91,8 +97,7 @@ func TestRecordUpstreamStreamBodyKeepsTheFailingFrame(t *testing.T) {
 	assert.EqualValues(t, http.StatusBadGateway, anomaly["upstream_status"])
 }
 
-// 一条失败报文（请求行、请求头、请求体、上游响应头、上游响应体）共用一个
-// 4 MB 总预算：超限时截断正文，而不是把整条现场丢掉
+// 请求体和响应体共用一个 4 MB 预算：超限时截断正文，头和状态码照常保留
 func TestAppendAnomalyInfoKeepsTheWholeCaptureWithinBudget(t *testing.T) {
 	requestBody := strings.Repeat("r", 3<<20)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -106,16 +111,16 @@ func TestAppendAnomalyInfoKeepsTheWholeCaptureWithinBudget(t *testing.T) {
 
 	payload, err := common.Marshal(anomaly)
 	require.NoError(t, err)
-	assert.LessOrEqual(t, len(payload), anomalyMaxRawBytes, "整条报文不能超过 4 MB")
+	assert.LessOrEqual(t, len(payload), anomalyMaxRawBytes, "正文截断后整个现场不超过 4 MB")
 	assert.Contains(t, anomaly["request_body"], anomalyTruncatedSuffix, "超预算的请求体应被截断")
 	assert.Contains(t, anomaly["upstream_body"], anomalyTruncatedSuffix, "超预算的响应体应被截断")
 	headers, ok := anomaly["request_headers"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "application/json", headers["Content-Type"], "预算内头照常保留")
+	assert.Equal(t, []any{"application/json"}, headers["Content-Type"], "头不参与截断")
 	assert.EqualValues(t, http.StatusBadGateway, anomaly["upstream_status"])
 }
 
-// 头没有单独的数量和长度上限，只有整条报文的 4 MB 总预算
+// 头没有单独的数量和长度上限，也不参与截断
 func TestAppendAnomalyInfoDoesNotLimitHeaderSizeOrCount(t *testing.T) {
 	longValue := strings.Repeat("h", 128<<10)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -130,28 +135,27 @@ func TestAppendAnomalyInfoDoesNotLimitHeaderSizeOrCount(t *testing.T) {
 	anomaly := restoredAnomaly(t, other.JSONString())
 	headers, ok := anomaly["request_headers"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, longValue, headers["X-Long"], "长头不单独截断")
+	assert.Equal(t, []any{longValue}, headers["X-Long"], "长头不单独截断")
 	assert.GreaterOrEqual(t, len(headers), 81, "头的数量不单独限制")
-	assert.Equal(t, "v", headers["X-Multi-79"])
+	assert.Equal(t, []any{"v"}, headers["X-Multi-79"])
 }
 
-// 正文都砍不动时（只有超大头），整块头会被丢掉并留下标记
-func TestFitAnomalyPayloadDropsHeadersWhenBodiesCannotShrink(t *testing.T) {
+// 正文都砍不动时（只剩超大头），头仍然原样保留，不丢弃也不截断
+func TestFitAnomalyPayloadKeepsHeadersWhenBodiesCannotShrink(t *testing.T) {
+	bigValue := strings.Repeat("h", anomalyMaxRawBytes+1)
 	anomaly := map[string]any{
-		"request_headers": map[string]string{
-			"X-Big": strings.Repeat("h", anomalyMaxRawBytes+1),
-		},
-		"upstream_headers": map[string]string{"X-Small": "v"},
+		"request_headers":  map[string][]string{"X-Big": {bigValue}},
+		"upstream_headers": map[string][]string{"X-Small": {"v"}},
 		"upstream_body":    "",
 	}
 	payload := fitAnomalyPayload(anomaly)
-	require.LessOrEqual(t, len(payload), anomalyMaxRawBytes)
+	require.NotEmpty(t, payload)
 
 	var decoded map[string]any
 	require.NoError(t, common.UnmarshalJsonStr(string(payload), &decoded))
-	assert.Equal(t, true, decoded["headers_dropped"])
-	_, hasRequestHeaders := decoded["request_headers"]
-	assert.False(t, hasRequestHeaders, "超预算的头应整块丢弃")
-	_, hasUpstreamHeaders := decoded["upstream_headers"]
-	assert.False(t, hasUpstreamHeaders)
+	assert.NotContains(t, decoded, "headers_dropped")
+	requestHeaders, ok := decoded["request_headers"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{bigValue}, requestHeaders["X-Big"], "超预算的头也要完整保留")
+	assert.Equal(t, map[string]any{"X-Small": []any{"v"}}, decoded["upstream_headers"])
 }

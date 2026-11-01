@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 
+import { CopyButton } from '@/components/copy-button'
 import { Dialog } from '@/components/dialog'
+import { Button } from '@/components/ui/button'
 import { PolicyDecisionRecord } from '@/features/system-settings/request-policies/decision-record'
 import {
   DetailRow,
@@ -18,12 +20,16 @@ import {
 } from '../../types'
 import { getExceptionErrorInfo } from '../exception-logs-columns'
 
-/** 把请求头拼成 "name: value" 的行，跳过空表。 */
-function headerLines(headers?: Record<string, string>): string[] {
+/** 把请求头拼成 "name: value" 的行，同名多值各占一行，跳过空表。 */
+function headerLines(headers?: Record<string, string | string[]>): string[] {
   if (!headers) {
     return []
   }
-  return Object.entries(headers).map(([name, value]) => `${name}: ${value}`)
+  return Object.entries(headers).flatMap(([name, value]) =>
+    Array.isArray(value)
+      ? value.map((item) => `${name}: ${item}`)
+      : [`${name}: ${value}`]
+  )
 }
 
 /** 现场信息里只要有可读内容才展示报文框。 */
@@ -40,35 +46,50 @@ function hasExchange(anomaly?: ExceptionLogAnomaly): boolean {
   )
 }
 
+const DISPLAY_BODY_MAX_BYTES = 4096
+
+// 正文不超过 4KB 才直接展示，更大的只在下载文件里提供
+function displayBody(body?: string): string | undefined {
+  if (!body) {
+    return undefined
+  }
+  return new TextEncoder().encode(body).length <= DISPLAY_BODY_MAX_BYTES
+    ? body
+    : undefined
+}
+
 /**
  * 把请求和上游响应拼成一段可读的报文：
  *
- * >>>
- * POST https://host/path
+ * >>> POST https://host/path
  * header: value
  *
  * body
+ *
  * <<< HTTP 400
  * header: value
  *
  * body
  */
-function buildExchangeText(anomaly: ExceptionLogAnomaly): string {
-  const lines: string[] = ['>>>']
-
+function buildExchangeText(
+  anomaly: ExceptionLogAnomaly,
+  includeBody: boolean
+): string {
   const requestLine = [anomaly.request_method, anomaly.request_url]
     .filter(Boolean)
     .join(' ')
   const requestHeaders = headerLines(anomaly.request_headers)
-  if (requestLine) {
-    lines.push(requestLine)
-  }
+  const requestBody = includeBody
+    ? anomaly.request_body
+    : displayBody(anomaly.request_body)
+  const lines: string[] = [`>>>${requestLine ? ` ${requestLine}` : ''}`]
   lines.push(...requestHeaders)
-  if (anomaly.request_body) {
-    if (requestLine || requestHeaders.length > 0) {
-      lines.push('')
-    }
-    lines.push(anomaly.request_body)
+  if (requestBody) {
+    lines.push('')
+    lines.push(requestBody)
+  }
+  if (requestHeaders.length > 0 || requestBody) {
+    lines.push('')
   }
 
   lines.push(
@@ -76,11 +97,12 @@ function buildExchangeText(anomaly: ExceptionLogAnomaly): string {
   )
   const responseHeaders = headerLines(anomaly.upstream_headers)
   lines.push(...responseHeaders)
-  if (anomaly.upstream_body) {
-    if (responseHeaders.length > 0) {
-      lines.push('')
-    }
-    lines.push(anomaly.upstream_body)
+  const responseBody = includeBody
+    ? anomaly.upstream_body
+    : displayBody(anomaly.upstream_body)
+  if (responseBody) {
+    lines.push('')
+    lines.push(responseBody)
   }
 
   return lines.join('\n')
@@ -128,11 +150,36 @@ function HeaderRows(props: { log: ExceptionLog; other: ExceptionLogOther }) {
 /** 报文框。现场数据要么来自列表行（旧数据 / 测试），要么按需从接口拉取。 */
 function ExchangeBlock({ anomaly }: { anomaly: ExceptionLogAnomaly }) {
   const { t } = useTranslation()
+  const download = () => {
+    const blob = new Blob([buildExchangeText(anomaly, true)], {
+      type: 'text/plain;charset=utf-8',
+    })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `http-capture-${Date.now()}.txt`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
   return (
     <DetailSection label={t('Request and upstream response')}>
-      <pre className='bg-background/60 max-h-96 overflow-auto rounded border p-2 font-mono text-[11px] leading-relaxed wrap-break-word whitespace-pre-wrap'>
-        {buildExchangeText(anomaly)}
-      </pre>
+      <div className='space-y-2'>
+        <div className='flex items-center justify-end gap-2'>
+          <CopyButton
+            value={buildExchangeText(anomaly, false)}
+            variant='outline'
+            size='sm'
+            iconClassName='size-4'
+            tooltip={t('Copy to clipboard')}
+          />
+          <Button size='sm' variant='outline' onClick={download}>
+            {t('Download')}
+          </Button>
+        </div>
+        <pre className='bg-background/60 max-h-96 overflow-auto rounded border p-2 font-mono text-[11px] leading-relaxed wrap-break-word whitespace-pre-wrap'>
+          {buildExchangeText(anomaly, false)}
+        </pre>
+      </div>
     </DetailSection>
   )
 }

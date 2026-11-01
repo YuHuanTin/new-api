@@ -32,9 +32,10 @@ export interface ExceptionLogAnomaly {
   request_method?: string
   request_url?: string
   request_body?: string
-  request_headers?: Record<string, string>
+  // 同名多值按数组原样保存，旧数据是单个字符串
+  request_headers?: Record<string, string | string[]>
   upstream_body?: string
-  upstream_headers?: Record<string, string>
+  upstream_headers?: Record<string, string | string[]>
   upstream_status?: number
 }
 

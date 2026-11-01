@@ -23,7 +23,7 @@ const (
 	anomalyCompressedKey = "anomaly_compressed"
 	// anomalyLogKey 是异常现场在 logs.other 管理员可见部分里的键
 	anomalyLogKey = "anomaly"
-	// anomalyMaxRawBytes 是一条失败报文（请求行、头、正文和上游响应）的总预算
+	// anomalyMaxRawBytes 是总预算
 	anomalyMaxRawBytes = 4 << 20
 	// anomalyTruncatedSuffix 标记内容被截断，读日志时一眼能看出来
 	anomalyTruncatedSuffix = "...(truncated)"
@@ -119,8 +119,8 @@ func requestURL(c *gin.Context) string {
 	return scheme + "://" + host + request.URL.RequestURI()
 }
 
-// AppendAnomalyInfo 把失败现场写进日志的管理员可见部分。整条报文共用 4 MB
-// 预算，超限先截断正文再丢弃头；整块压缩后再落库，清理时只删这一块
+// AppendAnomalyInfo 把失败现场写进日志的管理员可见部分。4 MB 预算只用于截断
+// 正文，请求头和响应头保持原样；整块压缩后再落库，清理时只删这一块
 func AppendAnomalyInfo(c *gin.Context, other *model.LogOther) {
 	if c == nil || other == nil {
 		return
@@ -194,8 +194,8 @@ func compressAnomalyPayload(c *gin.Context, payload []byte) string {
 	return compressed
 }
 
-// fitAnomalyPayload 把现场序列化到 4 MB 以内：先反复截断请求体和响应体里较大的
-// 那个，仍然超限就丢掉请求头和响应头并留下标记
+// fitAnomalyPayload 把现场序列化到 4 MB 以内，只截断正文里较大的那个；
+// 头不截断也不丢弃，保证原始头完整
 func fitAnomalyPayload(anomaly map[string]any) []byte {
 	payload, err := common.Marshal(anomaly)
 	if err != nil {
@@ -206,16 +206,6 @@ func fitAnomalyPayload(anomaly map[string]any) []byte {
 		if err != nil {
 			return nil
 		}
-	}
-	if len(payload) <= anomalyMaxRawBytes {
-		return payload
-	}
-	delete(anomaly, "request_headers")
-	delete(anomaly, "upstream_headers")
-	anomaly["headers_dropped"] = true
-	payload, err = common.Marshal(anomaly)
-	if err != nil {
-		return nil
 	}
 	return payload
 }
@@ -250,8 +240,8 @@ func halveLargestAnomalyBody(anomaly map[string]any) bool {
 	return true
 }
 
-// truncateAnomalyBody 截断单个正文，并标记被截断的事实。单条正文不可能超过
-// 整条报文的总预算，这里只是提前省掉一份用不上的内存
+// truncateAnomalyBody 截断单个正文，并标记被截断的事实。单条正文最多留
+// 4 MB，这里只是提前省掉一份用不上的内存
 func truncateAnomalyBody(body string) string {
 	if len(body) <= anomalyMaxRawBytes {
 		return body
@@ -279,14 +269,14 @@ func truncateAnomalyBodyBytes(body []byte) string {
 	return string(body[:cut]) + anomalyTruncatedSuffix
 }
 
-// anomalyHeaders 把头转成 map，同名多值用逗号拼接
-func anomalyHeaders(header http.Header) map[string]string {
-	result := make(map[string]string, len(header))
+// anomalyHeaders 按原样复制头，同名多值保留为数组
+func anomalyHeaders(header http.Header) map[string][]string {
+	result := make(map[string][]string, len(header))
 	for name, values := range header {
 		if len(values) == 0 {
 			continue
 		}
-		result[name] = strings.Join(values, ", ")
+		result[name] = append([]string(nil), values...)
 	}
 	return result
 }
