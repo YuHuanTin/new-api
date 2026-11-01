@@ -71,6 +71,15 @@ export interface CyberGuardSetting {
   threshold: number
 }
 
+export interface CaptureSetting {
+  retention_days: number
+}
+
+export interface CaptureUsage {
+  records: number
+  bytes: number
+}
+
 /** 解析日志里的 other 字段，解析失败时按空对象处理。 */
 export function parseExceptionLogOther(
   other: string | undefined

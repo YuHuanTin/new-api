@@ -104,6 +104,116 @@ func TestGetLogAnomalyCaptureReadsOnDemand(t *testing.T) {
 	assert.False(t, found, "不存在的日志返回 found=false")
 }
 
+// 清理全部时每一行都要清到；没有抓包的行不动，解析不了的行也不能让循环卡住
+func TestClearAllLogAnomalyCaptureClearsEveryRow(t *testing.T) {
+	previousDB := LOG_DB
+	previousType := common.LogDatabaseType()
+	t.Cleanup(func() {
+		LOG_DB = previousDB
+		common.SetLogDatabaseType(previousType)
+	})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	require.NoError(t, db.AutoMigrate(&Log{}))
+	LOG_DB = db
+	common.SetLogDatabaseType(common.DatabaseTypeSQLite)
+
+	first := &Log{Type: LogTypeError, Content: "first", Other: `{"public":{"cache_tokens":10},"admin_info":{"anomaly":"gz:abc"}}`}
+	second := &Log{Type: LogTypeError, Content: "second", Other: `{"admin_info":{"anomaly":"gz:def","request_policy":[{"rule_name":"demo"}]}}`}
+	plain := &Log{Type: LogTypeError, Content: "plain", Other: `{"public":{"cache_tokens":5}}`}
+	broken := &Log{Type: LogTypeError, Content: "broken", Other: `{"admin_info":{"anomaly":`}
+	require.NoError(t, db.Create(first).Error)
+	require.NoError(t, db.Create(second).Error)
+	require.NoError(t, db.Create(plain).Error)
+	require.NoError(t, db.Create(broken).Error)
+
+	cleared, err := ClearAllLogAnomalyCapture()
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, cleared, "只统计真正清掉的行")
+
+	var stored []Log
+	require.NoError(t, db.Order("id").Find(&stored).Error)
+	require.Len(t, stored, 4)
+	assert.NotContains(t, stored[0].Other, logOtherAnomalyKey)
+	assert.Contains(t, stored[0].Other, "cache_tokens", "其它字段保留")
+	assert.NotContains(t, stored[1].Other, logOtherAnomalyKey)
+	assert.Contains(t, stored[1].Other, "request_policy", "其它管理员字段保留")
+	assert.Equal(t, plain.Other, stored[2].Other, "没有抓包的行不动")
+	assert.Contains(t, stored[3].Other, "anomaly", "解析不了的行保持原样")
+
+	cleared, err = ClearAllLogAnomalyCapture()
+	require.NoError(t, err)
+	assert.EqualValues(t, 0, cleared, "重复清理不再改动")
+}
+
+// 统计抓包数据时只算 admin_info.anomaly 的字符串内容，按字节数累加
+func TestGetLogAnomalyCaptureUsageCountsAnomalyBytes(t *testing.T) {
+	previousDB := LOG_DB
+	previousType := common.LogDatabaseType()
+	t.Cleanup(func() {
+		LOG_DB = previousDB
+		common.SetLogDatabaseType(previousType)
+	})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	require.NoError(t, db.AutoMigrate(&Log{}))
+	LOG_DB = db
+	common.SetLogDatabaseType(common.DatabaseTypeSQLite)
+
+	first := `{"request_url":"https://up.example.com"}`
+	second := `{"request_url":"https://up.example.com","note":"中文"}`
+	for _, anomaly := range []string{first, second} {
+		other := NewLogOther()
+		other.SetAdmin(logOtherAnomalyKey, anomaly)
+		require.NoError(t, db.Create(&Log{Type: LogTypeError, Other: other.JSONString()}).Error)
+	}
+	require.NoError(t, db.Create(&Log{Type: LogTypeError, Other: `{"public":{"cache_tokens":10}}`}).Error)
+	require.NoError(t, db.Create(&Log{Type: LogTypeError, Other: `{"admin_info":{"anomaly":`}).Error)
+
+	usage, err := GetLogAnomalyCaptureUsage()
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, usage.Records, "只统计有抓包的行")
+	assert.EqualValues(t, len(first)+len(second), usage.Bytes, "按抓包内容的字节数累加")
+}
+
+// 按保留天数清理时只动更早的日志，新日志的抓包保留
+func TestPurgeExpiredLogAnomalyCaptureKeepsNewerRows(t *testing.T) {
+	previousDB := LOG_DB
+	previousType := common.LogDatabaseType()
+	t.Cleanup(func() {
+		LOG_DB = previousDB
+		common.SetLogDatabaseType(previousType)
+	})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	require.NoError(t, db.AutoMigrate(&Log{}))
+	LOG_DB = db
+	common.SetLogDatabaseType(common.DatabaseTypeSQLite)
+
+	old := &Log{Type: LogTypeError, CreatedAt: 100, Other: `{"admin_info":{"anomaly":"gz:old"}}`}
+	fresh := &Log{Type: LogTypeError, CreatedAt: 200, Other: `{"admin_info":{"anomaly":"gz:new"}}`}
+	require.NoError(t, db.Create(old).Error)
+	require.NoError(t, db.Create(fresh).Error)
+
+	cleared, err := PurgeExpiredLogAnomalyCapture(150)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, cleared)
+
+	var stored []Log
+	require.NoError(t, db.Order("id").Find(&stored).Error)
+	assert.NotContains(t, stored[0].Other, logOtherAnomalyKey, "过期日志的抓包被清掉")
+	assert.Contains(t, stored[1].Other, logOtherAnomalyKey, "未过期日志的抓包保留")
+}
+
 // 清理中途失败时整批回滚，不能留下清了一半的状态
 func TestClearLogAnomalyCaptureRollsBackOnFailure(t *testing.T) {
 	previousDB := LOG_DB

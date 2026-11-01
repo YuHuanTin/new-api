@@ -53,6 +53,90 @@ func ClearLogAnomalyCapture(locators []LogLocator) (int, error) {
 	return cleared, nil
 }
 
+// clearAllAnomalyCaptureBatchSize 每批清理的行数，限制一次读进内存的现场体积
+const clearAllAnomalyCaptureBatchSize = 50
+
+// ClearAllLogAnomalyCapture 清除所有日志行保存的抓包现场，日志记录本身保留。
+// SQL 数据库整批放在一个事务里，失败时回滚
+func ClearAllLogAnomalyCapture() (int64, error) {
+	return clearLogAnomalyCapture(0)
+}
+
+// PurgeExpiredLogAnomalyCapture 清掉创建时间早于 createdBefore 的抓包现场，
+// 供保留天数到期后的后台任务调用
+func PurgeExpiredLogAnomalyCapture(createdBefore int64) (int64, error) {
+	return clearLogAnomalyCapture(createdBefore)
+}
+
+func clearLogAnomalyCapture(createdBefore int64) (int64, error) {
+	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
+		return clearAllAnomalyCapture(LOG_DB, true, createdBefore)
+	}
+	var cleared int64
+	err := LOG_DB.Transaction(func(tx *gorm.DB) error {
+		var err error
+		cleared, err = clearAllAnomalyCapture(tx, false, createdBefore)
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+	return cleared, nil
+}
+
+// clearAllAnomalyCapture 按游标分批清理。SQL 用自增 id 做游标，ClickHouse 的
+// id 恒为 0，只能用建表排序键 (created_at, request_id)；游标保证解析不了的
+// 行也不会让循环卡住。createdBefore 大于 0 时只处理更早的日志
+func clearAllAnomalyCapture(db *gorm.DB, clickHouse bool, createdBefore int64) (int64, error) {
+	var cleared int64
+	lastID := 0
+	var lastCreatedAt int64
+	lastRequestID := ""
+	for {
+		var logs []*Log
+		query := db.Select("id", "request_id", "created_at", "other").
+			Where("other LIKE ? AND other LIKE ?", "%\"admin_info\"%", "%\"anomaly\"%")
+		if createdBefore > 0 {
+			query = query.Where("created_at < ?", createdBefore)
+		}
+		if clickHouse {
+			// ClickHouse 的 id 恒为 0，只能用 (created_at, request_id) 做游标；
+			// 没有 request_id 的行定位不到，跳过以免游标卡住
+			query = query.Where("request_id != ''")
+			if lastRequestID != "" {
+				query = query.Where("(created_at, request_id) > (?, ?)", lastCreatedAt, lastRequestID)
+			}
+			query = query.Order("created_at, request_id")
+		} else {
+			query = query.Where("id > ?", lastID).Order("id")
+		}
+		if err := query.Limit(clearAllAnomalyCaptureBatchSize).Find(&logs).Error; err != nil {
+			return cleared, err
+		}
+		if len(logs) == 0 {
+			return cleared, nil
+		}
+		for _, log := range logs {
+			var locator LogLocator
+			if clickHouse {
+				lastCreatedAt, lastRequestID = log.CreatedAt, log.RequestId
+				locator = LogLocator{RequestId: log.RequestId, CreatedAt: log.CreatedAt}
+			} else {
+				lastID = log.Id
+				locator = LogLocator{Id: log.Id}
+			}
+			other, changed := stripLogAnomalyCapture(log.Other)
+			if !changed {
+				continue
+			}
+			if err := updateLogOtherColumn(db, locator, other); err != nil {
+				return cleared, err
+			}
+			cleared++
+		}
+	}
+}
+
 // stripLogAnomalyCapture 从 logs.other 里去掉管理员可见的 anomaly，其它字段原样
 // 保留。存进去的是压缩过的字符串，这里直接丢掉即可，不需要解开
 func stripLogAnomalyCapture(other string) (string, bool) {

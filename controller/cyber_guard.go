@@ -33,12 +33,27 @@ func UpdateCyberGuardSetting(c *gin.Context) {
 // maxClearExceptionCaptureIDs 限制一次清理的行数，避免一次写入过多行
 const maxClearExceptionCaptureIDs = 200
 
-// ClearExceptionCapture 清除选中日志保存的抓包现场，日志记录本身保留
+// ClearExceptionCapture 清除抓包现场：all=true 清全部，否则清选中的日志。
+// 日志记录本身保留
 func ClearExceptionCapture(c *gin.Context) {
 	var request struct {
 		Items []model.LogLocator `json:"items"`
+		All   bool               `json:"all"`
 	}
-	if err := c.ShouldBindJSON(&request); err != nil || len(request.Items) == 0 {
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid request body"})
+		return
+	}
+	if request.All {
+		cleared, err := model.ClearAllLogAnomalyCapture()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"cleared": cleared}})
+		return
+	}
+	if len(request.Items) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "items is required"})
 		return
 	}
@@ -52,6 +67,16 @@ func ClearExceptionCapture(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"cleared": cleared}})
+}
+
+// GetExceptionCaptureUsage 返回抓包数据的总条数和总大小，给设置面板展示
+func GetExceptionCaptureUsage(c *gin.Context) {
+	usage, err := model.GetLogAnomalyCaptureUsage()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": usage})
 }
 
 // GetExceptionCapture 按需读取一条日志保存的抓包现场。日志列表不带这块数据

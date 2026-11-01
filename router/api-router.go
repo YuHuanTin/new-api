@@ -340,6 +340,9 @@ func SetApiRouter(router *gin.Engine) {
 		exceptionRoute.PATCH("/cyber_guard", middleware.RootAuth(), controller.UpdateCyberGuardSetting)
 		exceptionRoute.POST("/clear_capture", controller.ClearExceptionCapture)
 		exceptionRoute.GET("/capture", controller.GetExceptionCapture)
+		exceptionRoute.GET("/capture_size", controller.GetExceptionCaptureUsage)
+		exceptionRoute.GET("/capture_setting", controller.GetExceptionSetting)
+		exceptionRoute.PATCH("/capture_setting", middleware.RootAuth(), controller.UpdateExceptionSetting)
 		exceptionRoute.GET("/cyber_guard/channels", controller.ListCyberGuardChannels)
 		exceptionRoute.PATCH("/cyber_guard/channel", controller.SetChannelCyberGuard)
 

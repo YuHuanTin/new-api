@@ -374,6 +374,7 @@ func InitResources() error {
 	}
 
 	service.StartAuthArtifactCleanup()
+	service.StartLogAnomalyCaptureCleanup()
 
 	return nil
 }

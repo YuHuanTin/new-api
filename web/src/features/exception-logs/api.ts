@@ -2,6 +2,8 @@ import { api } from '@/lib/api'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
 import type {
+  CaptureSetting,
+  CaptureUsage,
   CyberGuardChannel,
   CyberGuardSetting,
   ExceptionLogAnomaly,
@@ -46,6 +48,12 @@ export async function clearExceptionCapture(items: ExceptionLogLocator[]) {
   return requireServerSuccess(response.data).data as { cleared: number }
 }
 
+/** 清掉所有日志保存的抓包现场，日志记录本身不动。 */
+export async function clearAllExceptionCapture() {
+  const response = await api.post('/api/exception/clear_capture', { all: true })
+  return requireServerSuccess(response.data).data as { cleared: number }
+}
+
 /** 打开异常详情时才拉取抓包现场；列表接口不带这块数据。 */
 export async function getExceptionCapture(locator: ExceptionLogLocator) {
   const response = await api.get('/api/exception/capture', { params: locator })
@@ -82,6 +90,46 @@ export async function saveCyberGuardSetting(options: Record<string, string>) {
   const response = await api.patch('/api/exception/cyber_guard', { options })
   return requireServerSuccess(response.data).data as {
     options: Record<string, string>
+  }
+}
+
+/** 抓包数据保留时长，和异常管理设置一起保存。 */
+export async function getCaptureSetting() {
+  const response = await api.get('/api/exception/capture_setting')
+  return requireServerSuccess(response.data).data as {
+    options: Record<string, string>
+  }
+}
+
+export async function saveCaptureSetting(options: Record<string, string>) {
+  const response = await api.patch('/api/exception/capture_setting', {
+    options,
+  })
+  return requireServerSuccess(response.data).data as {
+    options: Record<string, string>
+  }
+}
+
+/** 抓包数据的条数与总大小。 */
+export async function getCaptureUsage() {
+  const response = await api.get('/api/exception/capture_size')
+  return requireServerSuccess(response.data).data as CaptureUsage
+}
+
+export function readCaptureSetting(
+  options: Record<string, string>
+): CaptureSetting {
+  return {
+    retention_days:
+      Number(options['exception_setting.capture_retention_days'] ?? 3) || 3,
+  }
+}
+
+export function writeCaptureSetting(
+  setting: CaptureSetting
+): Record<string, string> {
+  return {
+    'exception_setting.capture_retention_days': String(setting.retention_days),
   }
 }
 
