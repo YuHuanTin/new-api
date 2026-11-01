@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Fragment } from 'react'
 import { CircleAlert } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -33,7 +34,11 @@ import {
 import { formatUseTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-import { getFirstResponseTimeColor, getResponseTimeColor } from '../lib/format'
+import {
+  getFirstResponseTimeColor,
+  getResponseTimeColor,
+  getTimeColor,
+} from '../lib/format'
 import type { LogOtherData } from '../types'
 
 /**
@@ -54,6 +59,8 @@ interface TimingMetricsCellProps {
   useTimeSec: number
   completionTokens: number
   frtMs?: number
+  /** 两次上游数据事件之间的最长静默时间（毫秒），缺失或为 0 时不显示 */
+  maxIdleMs?: number | null
   isStream: boolean
   className?: string
   /**
@@ -83,49 +90,100 @@ export function TimingMetricsCell(props: TimingMetricsCellProps) {
   const firstTokenLabel =
     firstTokenSeconds == null ? t('N/A') : formatUseTime(firstTokenSeconds)
   const totalTimeLabel = formatUseTime(props.useTimeSec)
+  const maxIdleSeconds =
+    props.maxIdleMs != null && props.maxIdleMs > 0
+      ? props.maxIdleMs / 1000
+      : null
+  const maxIdleLabel =
+    maxIdleSeconds == null ? null : formatUseTime(maxIdleSeconds)
+  const maxIdleVariant: StatusVariant =
+    maxIdleSeconds == null ? 'neutral' : getTimeColor(maxIdleSeconds)
 
-  const labels = (
-    <div
-      className={cn(
-        'flex min-h-8 min-w-0 flex-col justify-center gap-0.5 text-xs leading-tight',
-        props.compact &&
-          'min-h-0 flex-row flex-wrap items-center gap-x-2.5 gap-y-1'
-      )}
-    >
-      {showFirstToken && (
-        <div className='flex items-baseline gap-1.5'>
+  // 三个指标共用一组行，数值列纵向对齐
+  const rows: {
+    key: string
+    label: string
+    value: string
+    variant: StatusVariant
+    title?: string
+  }[] = []
+  if (showFirstToken) {
+    rows.push({
+      key: 'first-token',
+      label: t('First token'),
+      value: firstTokenLabel,
+      variant: firstTokenVariant,
+    })
+  }
+  rows.push({
+    key: 'duration',
+    label: t('Duration'),
+    value: totalTimeLabel,
+    variant: totalTimeVariant,
+  })
+  if (maxIdleLabel) {
+    rows.push({
+      key: 'max-idle',
+      label: t('MIT'),
+      value: maxIdleLabel,
+      variant: maxIdleVariant,
+      title: t('Maximum idle time'),
+    })
+  }
+
+  const labels = props.compact ? (
+    <div className='flex min-h-0 min-w-0 flex-row flex-wrap items-center gap-x-2.5 gap-y-1 text-xs leading-tight'>
+      {rows.map((row) => (
+        <div key={row.key} className='flex items-baseline gap-1.5'>
           {indicator === 'dot' && (
             <span
               aria-hidden
               className={cn(
                 'size-1.5 shrink-0 rounded-full',
-                dotColorMap[firstTokenVariant]
+                dotColorMap[row.variant]
               )}
             />
           )}
-          <span className='text-muted-foreground shrink-0'>
-            {t('First token')}
-          </span>
-          <span className={cn('tabular-nums', textColorMap[firstTokenVariant])}>
-            {firstTokenLabel}
+          <span className='text-muted-foreground shrink-0'>{row.label}</span>
+          <span
+            className={cn('tabular-nums', textColorMap[row.variant])}
+            title={row.title}
+          >
+            {row.value}
           </span>
         </div>
+      ))}
+    </div>
+  ) : (
+    // 网格固定标签列与数值列，行距压紧
+    <div
+      className={cn(
+        'grid min-w-0 content-center gap-x-1.5 text-[11px] leading-[1.05]',
+        indicator === 'dot'
+          ? 'grid-cols-[auto_auto_auto]'
+          : 'grid-cols-[auto_auto]'
       )}
-      <div className='flex items-baseline gap-1.5'>
-        {indicator === 'dot' && (
+    >
+      {rows.map((row) => (
+        <Fragment key={row.key}>
+          {indicator === 'dot' && (
+            <span
+              aria-hidden
+              className={cn(
+                'size-1.5 shrink-0 self-center rounded-full',
+                dotColorMap[row.variant]
+              )}
+            />
+          )}
+          <span className='text-muted-foreground shrink-0'>{row.label}</span>
           <span
-            aria-hidden
-            className={cn(
-              'size-1.5 shrink-0 rounded-full',
-              dotColorMap[totalTimeVariant]
-            )}
-          />
-        )}
-        <span className='text-muted-foreground shrink-0'>{t('Duration')}</span>
-        <span className={cn('tabular-nums', textColorMap[totalTimeVariant])}>
-          {totalTimeLabel}
-        </span>
-      </div>
+            className={cn('tabular-nums', textColorMap[row.variant])}
+            title={row.title}
+          >
+            {row.value}
+          </span>
+        </Fragment>
+      ))}
     </div>
   )
 
@@ -148,6 +206,9 @@ export function TimingMetricsCell(props: TimingMetricsCellProps) {
           <>
             <span className={cn('flex-1', barColorMap[firstTokenVariant])} />
             <span className={cn('flex-1', barColorMap[totalTimeVariant])} />
+            {maxIdleLabel && (
+              <span className={cn('flex-1', barColorMap[maxIdleVariant])} />
+            )}
           </>
         )}
       </span>

@@ -300,6 +300,10 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 			ticker.Reset(streamingTimeout)
 			data := scanner.Text()
+			// 心跳和注释也算上游有数据，空行只是分隔符
+			if data != "" {
+				info.StreamStatus.ObserveUpstreamLine(time.Now())
+			}
 			logger.LogDebug(c, "stream scanner data: %s", data)
 
 			if len(data) < 6 {
@@ -317,6 +321,8 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				info.SetFirstResponseTime()
 				info.ReceivedResponseCount++
 
+				// 下游阻塞期间暂停计时，写入完成后恢复
+				info.StreamStatus.PauseDataGapTiming()
 				select {
 				case dataChan <- data:
 				case <-ctx.Done():
@@ -324,6 +330,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				case <-stopChan:
 					return
 				}
+				info.StreamStatus.ResumeDataGapTiming(time.Now())
 			} else {
 				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
 				logger.LogDebug(c, "received [DONE], stopping scanner")
@@ -357,7 +364,10 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
 	}
 
+	// 结束时刻要早于 cleanup，等待扫描器退出的时间不属于上游静默
+	streamEndedAt := time.Now()
 	cleanup()
+	info.StreamStatus.FinishDataGapTiming(streamEndedAt)
 	// All stream goroutines have joined. Done from a successfully delivered
 	// protocol completion can now correct a cancellation that won while its
 	// callback was still running. Bare EOF and failed writes never qualify.

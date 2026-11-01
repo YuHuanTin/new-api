@@ -762,14 +762,15 @@ export function useCommonLogsColumns(
                 {completionTokens.toLocaleString()}
               </span>
               {(cacheReadTokens > 0 || cacheWriteTokens > 0) && (
-                <div className='flex items-center gap-1 text-[11px]'>
+                // 缓存文本跟随表格统一字号，只压行距
+                <div className='flex items-center gap-1 leading-none'>
                   {cacheReadTokens > 0 && (
-                    <span className='text-muted-foreground/60'>
+                    <span className='text-muted-foreground/60 leading-none'>
                       {t('Cache')} R {cacheReadTokens.toLocaleString()}
                     </span>
                   )}
                   {cacheWriteTokens > 0 && (
-                    <span className='text-muted-foreground/60'>
+                    <span className='text-muted-foreground/60 leading-none'>
                       W {cacheWriteTokens.toLocaleString()}
                     </span>
                   )}
@@ -791,7 +792,7 @@ export function useCommonLogsColumns(
                       style={{ width: `${cacheRate}%` }}
                     />
                   </div>
-                  <span className='text-muted-foreground/60 text-[10px] tabular-nums'>
+                  <span className='text-muted-foreground/60 leading-none tabular-nums'>
                     {formatPercentOneDecimal(cacheRate, locale)}
                   </span>
                 </div>
@@ -843,6 +844,7 @@ export function useCommonLogsColumns(
               useTimeSec={useTime}
               completionTokens={log.completion_tokens}
               frtMs={other?.frt}
+              maxIdleMs={other?.max_idle_ms}
               isStream={log.is_stream}
             />
           )

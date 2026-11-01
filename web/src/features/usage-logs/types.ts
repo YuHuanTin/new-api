@@ -215,6 +215,8 @@ export interface LogOtherData {
   audio_ratio?: number
   audio_completion_ratio?: number
   frt?: number
+  // 两次上游数据事件之间最长的静默时间（毫秒，仅流式请求）
+  max_idle_ms?: number
   // Tiered (expression-based) billing fields, set by backend when
   // billing_mode === 'tiered_expr'. expr_b64 is the base64-encoded billing
   // expression; the matched tier and request-rule traces come from the actual

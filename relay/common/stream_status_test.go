@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -216,4 +217,73 @@ func TestStreamStatus_Summary_NilSafe(t *testing.T) {
 	t.Parallel()
 	var s *StreamStatus
 	assert.Equal(t, "StreamStatus<nil>", s.Summary())
+}
+
+func TestStreamStatus_MaxDataGap(t *testing.T) {
+	t.Parallel()
+	at := func(sec int) time.Time { return time.Unix(1000+int64(sec), 0) }
+	tests := []struct {
+		name  string
+		steps func(s *StreamStatus)
+		want  time.Duration
+	}{
+		{
+			name:  "single upstream line has no gap",
+			steps: func(s *StreamStatus) { s.ObserveUpstreamLine(at(5)) },
+			want:  0,
+		},
+		{
+			name: "largest silence between upstream lines is kept",
+			steps: func(s *StreamStatus) {
+				s.ObserveUpstreamLine(at(0))
+				s.ObserveUpstreamLine(at(2))
+				s.ObserveUpstreamLine(at(7))
+				s.ObserveUpstreamLine(at(8))
+			},
+			want: 5 * time.Second,
+		},
+		{
+			name: "downstream blocking is not counted as upstream silence",
+			steps: func(s *StreamStatus) {
+				s.ObserveUpstreamLine(at(0))
+				s.PauseDataGapTiming()
+				s.ResumeDataGapTiming(at(10))
+				s.ObserveUpstreamLine(at(12))
+			},
+			want: 2 * time.Second,
+		},
+		{
+			name: "stream ending while blocked downstream adds no gap",
+			steps: func(s *StreamStatus) {
+				s.ObserveUpstreamLine(at(0))
+				s.PauseDataGapTiming()
+				s.FinishDataGapTiming(at(20))
+			},
+			want: 0,
+		},
+		{
+			name: "stream ending while waiting upstream counts the trailing silence",
+			steps: func(s *StreamStatus) {
+				s.ObserveUpstreamLine(at(0))
+				s.ObserveUpstreamLine(at(1))
+				s.FinishDataGapTiming(at(31))
+			},
+			want: 30 * time.Second,
+		},
+	}
+	for _, tt := range tests {
+		s := NewStreamStatus()
+		tt.steps(s)
+		assert.Equal(t, tt.want, s.MaxDataGap(), "case=%s", tt.name)
+	}
+}
+
+func TestStreamStatus_MaxDataGap_NilSafe(t *testing.T) {
+	t.Parallel()
+	var s *StreamStatus
+	s.ObserveUpstreamLine(time.Now())
+	s.PauseDataGapTiming()
+	s.ResumeDataGapTiming(time.Now())
+	s.FinishDataGapTiming(time.Now())
+	assert.Equal(t, time.Duration(0), s.MaxDataGap())
 }

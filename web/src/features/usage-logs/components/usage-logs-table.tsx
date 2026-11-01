@@ -88,7 +88,13 @@ interface UsageLogsTableProps {
 export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   const { t } = useTranslation()
   const getColumnClassName = useCallback(
-    () => (logCategory === 'common' ? 'py-2' : 'py-3.5'),
+    (_columnId: string, kind: 'header' | 'cell') => {
+      // 固定行高 = 最高内容 48px + 上下内边距（common 16 / admin 28），有无缓存文本和 MIT 都一致
+      if (kind === 'header') {
+        return logCategory === 'common' ? 'py-2' : 'py-3.5'
+      }
+      return logCategory === 'common' ? 'py-2 h-[64px]' : 'py-3.5 h-[76px]'
+    },
     [logCategory]
   )
   const {

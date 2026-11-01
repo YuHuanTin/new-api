@@ -55,6 +55,9 @@ type StreamStatus struct {
 	errorStatus      int
 	incompleteReason string
 	expectsTerminal  bool
+
+	lastDataAt time.Time     // 上一条上游非空行时间，零值表示暂停计时
+	maxDataGap time.Duration // 两条上游非空行之间的最长间隔
 }
 
 // StreamOutcome holds classification facts only; upstream messages never
@@ -230,4 +233,60 @@ func (s *StreamStatus) Summary() string {
 	}
 	s.mu.Unlock()
 	return b.String()
+}
+
+// ObserveUpstreamLine 记录一条上游非空行并更新最长间隔，第一行之前的等待不计入
+func (s *StreamStatus) ObserveUpstreamLine(now time.Time) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.lastDataAt.IsZero() {
+		s.maxDataGap = max(s.maxDataGap, now.Sub(s.lastDataAt))
+	}
+	s.lastDataAt = now
+}
+
+// PauseDataGapTiming 在下游写入前暂停计时，下游阻塞不算上游静默
+func (s *StreamStatus) PauseDataGapTiming() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastDataAt = time.Time{}
+}
+
+// ResumeDataGapTiming 在下游写入后从 now 重新计时
+func (s *StreamStatus) ResumeDataGapTiming(now time.Time) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastDataAt = now
+}
+
+// FinishDataGapTiming 在流结束时补最后一段，只在扫描器等待上游时计入
+func (s *StreamStatus) FinishDataGapTiming(endedAt time.Time) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.lastDataAt.IsZero() && endedAt.After(s.lastDataAt) {
+		s.maxDataGap = max(s.maxDataGap, endedAt.Sub(s.lastDataAt))
+	}
+	s.lastDataAt = time.Time{}
+}
+
+// MaxDataGap 返回最长上游空闲时间，不足两条上游行时为 0
+func (s *StreamStatus) MaxDataGap() time.Duration {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.maxDataGap
 }

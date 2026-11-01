@@ -108,6 +108,10 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	other.SetPublic("model_price", modelPrice)
 	other.SetPublic("user_group_ratio", userGroupRatio)
 	other.SetPublic("frt", float64(relayInfo.FirstResponseTime.UnixMilli()-relayInfo.StartTime.UnixMilli()))
+	// 流式请求的最长上游空闲时间，不足两条上游行时不写入
+	if maxIdle := relayInfo.StreamStatus.MaxDataGap(); relayInfo.IsStream && maxIdle > 0 {
+		other.SetPublic("max_idle_ms", float64(maxIdle.Milliseconds()))
+	}
 	if relayInfo.ReasoningEffort != "" {
 		other.SetPublic("reasoning_effort", relayInfo.ReasoningEffort)
 	}

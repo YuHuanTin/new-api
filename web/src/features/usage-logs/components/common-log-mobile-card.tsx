@@ -208,6 +208,7 @@ export function CommonLogMobileCard<TData>(props: {
                   useTimeSec={log.use_time}
                   completionTokens={log.completion_tokens}
                   frtMs={other?.frt}
+                  maxIdleMs={other?.max_idle_ms}
                   isStream={log.is_stream}
                   indicator='dot'
                   compact
