@@ -109,9 +109,6 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 			// 上游错误对象可能只带 code 和 message，没有 type；裸 error 事件更是
 			// 不挂在 response 上，所以错误从整个事件上取，cyber_policy 拒绝才认得出来
 			if oaiErr := streamResp.GetOpenAIError(); dto.HasOpenAIError(oaiErr) {
-				// 流式请求的 HTTP 状态码是 200，真正的拒绝在事件里，留下这一帧
-				// 异常管理才还原得出上游说了什么
-				service.RecordUpstreamStreamBody(c, resp, data)
 				streamErr = upstreamStreamErrorFromUpstream(oaiErr)
 				break
 			}
@@ -292,7 +289,6 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			// 不再要求必须有 type，这样 cyber_policy 拒绝才认得出来
 			if oaiErr := streamResp.GetOpenAIError(); dto.HasOpenAIError(oaiErr) {
 				streamErr = upstreamStreamErrorFromUpstream(oaiErr)
-				service.RecordUpstreamStreamBody(c, resp, data)
 				stopStream(sr, streamErr)
 				return
 			}

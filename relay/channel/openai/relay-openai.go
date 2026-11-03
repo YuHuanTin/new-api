@@ -155,9 +155,6 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 						if hit, _ := dto.DetectCyberPolicy(oaiErr); hit {
 							info.CyberPolicyViolation = true
 						}
-						// 流式请求的 HTTP 状态码是 200，真正的拒绝在事件里，留下这一帧
-						// 异常管理才还原得出上游说了什么
-						service.RecordUpstreamStreamBody(c, resp, data)
 						// 错误帧不再当正常分片下发，交给统一的错误帧流程
 						lastStreamData = ""
 						sr.Stop(upstreamStreamError)
@@ -298,22 +295,18 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		var enterpriseResponse openrouter.OpenRouterEnterpriseResponse
 		err = common.Unmarshal(responseBody, &enterpriseResponse)
 		if err != nil {
-			// 只有失败才留现场：正常响应体不进内存、不落库
-			service.RecordUpstreamResponse(c, resp, responseBody)
 			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 		}
 		if enterpriseResponse.Success {
 			responseBody = enterpriseResponse.Data
 		} else {
 			logger.LogError(c, common.LogText("openrouter enterprise response success=false, data: %s", enterpriseResponse.Data))
-			service.RecordUpstreamResponse(c, resp, responseBody)
 			return nil, types.NewOpenAIError(fmt.Errorf("openrouter response success=false"), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 		}
 	}
 
 	err = common.Unmarshal(responseBody, &simpleResponse)
 	if err != nil {
-		service.RecordUpstreamResponse(c, resp, responseBody)
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 

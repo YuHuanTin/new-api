@@ -146,6 +146,9 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	}
 	defer service.CloseResponseBodyGracefully(resp)
 
+	// JSONL 也必须记录流是否完整结束，不能把缺少 done 帧的 EOF 当作成功。
+	info.StreamStatus = relaycommon.NewStreamStatus()
+	info.StreamStatus.RequireTerminal()
 	helper.SetEventStreamHeaders(c)
 	scanner := helper.NewStreamScanner(resp.Body)
 	usage := &dto.Usage{}
@@ -182,6 +185,8 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			continue
 		}
 		// done frame
+		info.StreamStatus.MarkCompleted()
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
 		if delta, hasPayload := buildOllamaStreamDelta(&chunk, responseId, created, model, &toolCallIndex); hasPayload {
 			if data, err := common.Marshal(delta); err == nil {
 				_ = helper.StringData(c, string(data))
@@ -215,7 +220,11 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		break
 	}
 	if err := scanner.Err(); err != nil && err != io.EOF {
+		// 只公开错误分类，上游原始内容由 root 抓包保存。
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, nil)
 		logger.LogError(c, common.LogText("ollama stream scan error: %s", err.Error()))
+	} else if info.StreamStatus.ResponseOutcome() != string(relaycommon.ResponseOutcomeCompleted) {
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, io.ErrUnexpectedEOF)
 	}
 	return usage, nil
 }

@@ -242,3 +242,27 @@ func TestOllamaStreamHandlerDoneToolCalls(t *testing.T) {
 	assert.Equal(t, constant.FinishReasonToolCalls, *chunks[stopChunkIndex].Choices[0].FinishReason)
 	assert.Contains(t, w.Body.String(), "data: [DONE]")
 }
+
+func TestOllamaStreamHandlerClassifiesIncompleteJSONLines(t *testing.T) {
+	for _, tc := range []struct {
+		name, wire string
+		failed     bool
+	}{
+		{"completed", "{\"message\":{\"content\":\"hello\"},\"done\":false}\n{\"done\":true,\"prompt_eval_count\":5,\"eval_count\":7}\n", false},
+		{"missing_done", "{\"message\":{\"content\":\"partial\"},\"done\":false}\n", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "llama"}}
+			resp := &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(tc.wire))}
+			usage, apiErr := ollamaStreamHandler(c, info, resp)
+			require.Nil(t, apiErr, "保持原有的部分用量结算路径")
+			require.NotNil(t, usage)
+			require.NotNil(t, info.StreamStatus)
+			assert.Equal(t, tc.failed, info.StreamStatus.Failed())
+			if !tc.failed {
+				assert.Equal(t, 12, usage.TotalTokens)
+			}
+		})
+	}
+}

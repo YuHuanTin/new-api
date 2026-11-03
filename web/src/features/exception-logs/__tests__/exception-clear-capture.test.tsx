@@ -8,12 +8,20 @@ import {
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { api } from '@/lib/api'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { ExceptionClearCapture } from '../components/exception-clear-capture'
 import type { ExceptionLog } from '../types'
+
+beforeEach(() => {
+  useAuthStore
+    .getState()
+    .auth.setUser({ id: 1, username: 'root', role: ROLE.SUPER_ADMIN })
+})
 
 const logs: ExceptionLog[] = [
   {
@@ -80,6 +88,7 @@ function renderActions(selected: RowSelectionState) {
 }
 
 afterEach(() => {
+  useAuthStore.setState(useAuthStore.getInitialState(), true)
   cleanup()
   vi.restoreAllMocks()
 })
@@ -114,3 +123,14 @@ test('clears the capture of the selected requests only', async () => {
     expect(screen.queryByRole('button', { name: 'Clear capture' })).toBeNull()
   )
 })
+
+test.each([ROLE.ADMIN, ROLE.USER])(
+  'hides selected capture clearing for role %s',
+  (role) => {
+    useAuthStore.getState().auth.setUser({ id: 2, username: 'viewer', role })
+    const post = vi.spyOn(api, 'post')
+    renderActions({ '1': true })
+    expect(screen.queryByRole('button', { name: 'Clear capture' })).toBeNull()
+    expect(post).not.toHaveBeenCalled()
+  }
+)

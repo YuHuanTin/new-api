@@ -242,3 +242,24 @@ func TestLogFormattingPreservesLargeIntegerLexemes(t *testing.T) {
 		assert.Equal(t, unprivileged, adminLogs[0].Other)
 	})
 }
+
+func TestAnomalyCaptureIsRootOnly(t *testing.T) {
+	for _, compressed := range []bool{false, true} {
+		var capture any = map[string]any{"request_headers": map[string]any{"Authorization": []string{"Bearer secret"}}}
+		if compressed {
+			capture = common.CompressText(common.MapToJsonStr(capture.(map[string]any)))
+		}
+		other := common.MapToJsonStr(map[string]any{"admin_info": map[string]any{"anomaly": capture, "anomaly_captured": true, "note": "operational"}})
+		admin := []*Log{{Other: other}}
+		FormatAdminLogs(admin)
+		assert.NotContains(t, admin[0].Other, "anomaly")
+		assert.NotContains(t, admin[0].Other, "secret")
+		assert.Contains(t, admin[0].Other, "operational")
+		user := []*Log{{Other: other}}
+		formatUserLogs(user, 0)
+		assert.NotContains(t, user[0].Other, "admin_info")
+		root := []*Log{{Other: other}}
+		FormatRootLogs(root)
+		assert.Equal(t, other, root[0].Other, "root formatting must retain the stored representation")
+	}
+}

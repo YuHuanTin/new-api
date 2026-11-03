@@ -338,11 +338,13 @@ func SetApiRouter(router *gin.Engine) {
 		exceptionRoute.GET("/cyber_guard", controller.GetCyberGuardSetting)
 		// 自动处置参数是全局设置，和 /api/option 一致只允许 root 修改
 		exceptionRoute.PATCH("/cyber_guard", middleware.RootAuth(), controller.UpdateCyberGuardSetting)
-		exceptionRoute.POST("/clear_capture", controller.ClearExceptionCapture)
-		exceptionRoute.GET("/capture", controller.GetExceptionCapture)
-		exceptionRoute.GET("/capture_size", controller.GetExceptionCaptureUsage)
-		exceptionRoute.GET("/capture_setting", controller.GetExceptionSetting)
-		exceptionRoute.PATCH("/capture_setting", middleware.RootAuth(), controller.UpdateExceptionSetting)
+		// 抓包内容、统计、设置和清理统一只允许 root 操作。
+		captureRoute := exceptionRoute.Group("", middleware.RootAuth())
+		captureRoute.POST("/clear_capture", controller.ClearExceptionCapture)
+		captureRoute.GET("/capture", controller.GetExceptionCapture)
+		captureRoute.GET("/capture_size", controller.GetExceptionCaptureUsage)
+		captureRoute.GET("/capture_setting", controller.GetExceptionSetting)
+		captureRoute.PATCH("/capture_setting", controller.UpdateExceptionSetting)
 		exceptionRoute.GET("/cyber_guard/channels", controller.ListCyberGuardChannels)
 		exceptionRoute.PATCH("/cyber_guard/channel", controller.SetChannelCyberGuard)
 

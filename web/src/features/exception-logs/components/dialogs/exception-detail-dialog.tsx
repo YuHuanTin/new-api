@@ -10,6 +10,8 @@ import {
   DetailSection,
 } from '@/features/usage-logs/components/dialogs/log-detail-layout'
 import { formatTimestampToDate } from '@/lib/format'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { getExceptionCapture, type ExceptionLogLocator } from '../../api'
 import {
@@ -19,94 +21,6 @@ import {
   type ExceptionLogOther,
 } from '../../types'
 import { getExceptionErrorInfo } from '../exception-logs-columns'
-
-/** 把请求头拼成 "name: value" 的行，同名多值各占一行，跳过空表。 */
-function headerLines(headers?: Record<string, string | string[]>): string[] {
-  if (!headers) {
-    return []
-  }
-  return Object.entries(headers).flatMap(([name, value]) =>
-    Array.isArray(value)
-      ? value.map((item) => `${name}: ${item}`)
-      : [`${name}: ${value}`]
-  )
-}
-
-/** 现场信息里只要有可读内容才展示报文框。 */
-function hasExchange(anomaly?: ExceptionLogAnomaly): boolean {
-  if (!anomaly) {
-    return false
-  }
-  return Boolean(
-    anomaly.request_url ||
-    anomaly.request_body ||
-    anomaly.upstream_body ||
-    Object.keys(anomaly.request_headers ?? {}).length > 0 ||
-    Object.keys(anomaly.upstream_headers ?? {}).length > 0
-  )
-}
-
-const DISPLAY_BODY_MAX_BYTES = 4096
-
-// 正文不超过 4KB 才直接展示，更大的只在下载文件里提供
-function displayBody(body?: string): string | undefined {
-  if (!body) {
-    return undefined
-  }
-  return new TextEncoder().encode(body).length <= DISPLAY_BODY_MAX_BYTES
-    ? body
-    : undefined
-}
-
-/**
- * 把请求和上游响应拼成一段可读的报文：
- *
- * >>> POST https://host/path
- * header: value
- *
- * body
- *
- * <<< HTTP 400
- * header: value
- *
- * body
- */
-function buildExchangeText(
-  anomaly: ExceptionLogAnomaly,
-  includeBody: boolean
-): string {
-  const requestLine = [anomaly.request_method, anomaly.request_url]
-    .filter(Boolean)
-    .join(' ')
-  const requestHeaders = headerLines(anomaly.request_headers)
-  const requestBody = includeBody
-    ? anomaly.request_body
-    : displayBody(anomaly.request_body)
-  const lines: string[] = [`>>>${requestLine ? ` ${requestLine}` : ''}`]
-  lines.push(...requestHeaders)
-  if (requestBody) {
-    lines.push('')
-    lines.push(requestBody)
-  }
-  if (requestHeaders.length > 0 || requestBody) {
-    lines.push('')
-  }
-
-  lines.push(
-    anomaly.upstream_status ? `<<< HTTP ${anomaly.upstream_status}` : '<<<'
-  )
-  const responseHeaders = headerLines(anomaly.upstream_headers)
-  lines.push(...responseHeaders)
-  const responseBody = includeBody
-    ? anomaly.upstream_body
-    : displayBody(anomaly.upstream_body)
-  if (responseBody) {
-    lines.push('')
-    lines.push(responseBody)
-  }
-
-  return lines.join('\n')
-}
 
 function HeaderRows(props: { log: ExceptionLog; other: ExceptionLogOther }) {
   const { t } = useTranslation()
@@ -147,17 +61,105 @@ function HeaderRows(props: { log: ExceptionLog; other: ExceptionLogOther }) {
   )
 }
 
-/** 报文框。现场数据要么来自列表行（旧数据 / 测试），要么按需从接口拉取。 */
-function ExchangeBlock({ anomaly }: { anomaly: ExceptionLogAnomaly }) {
+/** 分别按 UTF-8 字节数限制正文预览，null 在展示时替换为统一省略标记。 */
+function capturePreview(raw: string): (string | null)[] {
+  const encoder = new TextEncoder()
+  const requestStart = raw.indexOf('\n\n') + 2
+  const responses = [...raw.matchAll(/\n<<<(?: HTTP \d{3})?\n/g)]
+  // 旧对象或正文内含报文分隔符时无法可靠分段，超限则只允许下载原文。
+  if (!raw.startsWith('>>> ') || requestStart < 2 || responses.length !== 1) {
+    return encoder.encode(raw).byteLength > 4096 ? [null] : [raw]
+  }
+  const responseStart = responses[0].index + 1
+  const requestEnd = responseStart - 2
+  const responseHeaderEnd = raw.indexOf('\n\n', responseStart)
+  if (requestEnd < requestStart || responseHeaderEnd < 0) {
+    return encoder.encode(raw).byteLength > 4096 ? [null] : [raw]
+  }
+  const responseBodyStart = responseHeaderEnd + 2
+  const responseEnd = raw.endsWith('\n') ? raw.length - 1 : raw.length
+  const request = raw.slice(requestStart, requestEnd)
+  const response = raw.slice(responseBodyStart, responseEnd)
+  return [
+    raw.slice(0, requestStart),
+    encoder.encode(request).byteLength > 4096 ? null : request,
+    raw.slice(requestEnd, responseBodyStart),
+    encoder.encode(response).byteLength > 4096 ? null : response,
+    raw.slice(responseEnd),
+  ]
+}
+
+/** 每个查询缓存只解压、计算预览一次，下载复用解压后的原始字节。 */
+async function decodeCapture(encoded: string): Promise<{
+  preview: (string | null)[]
+  bytes: Uint8Array<ArrayBuffer>
+}> {
+  if (typeof encoded !== 'string' || !encoded.startsWith('gz:')) {
+    const raw = typeof encoded === 'string' ? encoded : JSON.stringify(encoded)
+    return {
+      preview: capturePreview(raw),
+      bytes: new TextEncoder().encode(raw),
+    }
+  }
+  const bytes = Uint8Array.from(atob(encoded.slice(3)), (char) =>
+    char.charCodeAt(0)
+  )
+  const stream = new Blob([bytes])
+    .stream()
+    .pipeThrough(new DecompressionStream('gzip'))
+  const decoded = new Uint8Array(await new Response(stream).arrayBuffer())
+  return {
+    preview: capturePreview(new TextDecoder().decode(decoded)),
+    bytes: decoded,
+  }
+}
+
+/** 按需读取并解压，重新打开时复用按账号和会话隔离的缓存。 */
+function RemoteExchange(props: {
+  locator: ExceptionLogLocator
+  open: boolean
+  inline?: ExceptionLogAnomaly
+}) {
   const { t } = useTranslation()
-  const download = () => {
-    const blob = new Blob([buildExchangeText(anomaly, true)], {
-      type: 'text/plain;charset=utf-8',
-    })
-    const url = URL.createObjectURL(blob)
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  const query = useQuery({
+    queryKey: [
+      'exception-capture',
+      userId,
+      sessionId,
+      props.locator.id,
+      props.locator.request_id,
+      props.locator.created_at,
+    ],
+    queryFn: async () => {
+      const encoded = props.inline ?? (await getExceptionCapture(props.locator))
+      return encoded ? decodeCapture(encoded) : null
+    },
+    enabled: props.open,
+    staleTime: Infinity,
+    gcTime: 5 * 60 * 1000,
+  })
+  if (query.isPending) {
+    return <p className='text-muted-foreground text-sm'>{t('Loading...')}</p>
+  }
+  if (query.isError) {
+    return (
+      <p role='alert' className='text-destructive text-sm'>
+        {t('Request failed')}
+      </p>
+    )
+  }
+  if (!query.data) return null
+  const capture = query.data
+  const preview = capture.preview.map((part) => part ?? '(omited...)').join('')
+  const download = (): void => {
+    const url = URL.createObjectURL(
+      new Blob([capture.bytes], { type: 'text/plain' })
+    )
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = `http-capture-${Date.now()}.txt`
+    anchor.download = `http-capture-${props.locator.id}.txt`
     anchor.click()
     URL.revokeObjectURL(url)
   }
@@ -166,7 +168,7 @@ function ExchangeBlock({ anomaly }: { anomaly: ExceptionLogAnomaly }) {
       <div className='space-y-2'>
         <div className='flex items-center justify-end gap-2'>
           <CopyButton
-            value={buildExchangeText(anomaly, false)}
+            value={preview}
             variant='outline'
             size='sm'
             iconClassName='size-4'
@@ -177,39 +179,11 @@ function ExchangeBlock({ anomaly }: { anomaly: ExceptionLogAnomaly }) {
           </Button>
         </div>
         <pre className='bg-background/60 max-h-96 overflow-auto rounded border p-2 font-mono text-[11px] leading-relaxed wrap-break-word whitespace-pre-wrap'>
-          {buildExchangeText(anomaly, false)}
+          {preview}
         </pre>
       </div>
     </DetailSection>
   )
-}
-
-/** 列表接口不再返回抓包现场，打开详情时才按日志定位信息拉取。 */
-function RemoteExchange({
-  locator,
-  open,
-}: {
-  locator: ExceptionLogLocator
-  open: boolean
-}) {
-  const { t } = useTranslation()
-  const query = useQuery({
-    queryKey: [
-      'exception-capture',
-      locator.id,
-      locator.request_id,
-      locator.created_at,
-    ],
-    queryFn: () => getExceptionCapture(locator),
-    enabled: open,
-  })
-  if (query.isPending) {
-    return <p className='text-muted-foreground text-sm'>{t('Loading...')}</p>
-  }
-  if (!query.data || !hasExchange(query.data)) {
-    return null
-  }
-  return <ExchangeBlock anomaly={query.data} />
 }
 
 export function ExceptionDetailDialog(props: {
@@ -218,6 +192,9 @@ export function ExceptionDetailDialog(props: {
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useTranslation()
+  const isRoot = useAuthStore(
+    (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
+  )
   if (!props.log) {
     return null
   }
@@ -246,9 +223,7 @@ export function ExceptionDetailDialog(props: {
           <HeaderRows log={props.log} other={other} />
         </DetailSection>
 
-        {hasExchange(anomaly) ? (
-          <ExchangeBlock anomaly={anomaly as ExceptionLogAnomaly} />
-        ) : (
+        {isRoot && (
           <RemoteExchange
             locator={{
               id: props.log.id,
@@ -256,6 +231,7 @@ export function ExceptionDetailDialog(props: {
               created_at: props.log.created_at,
             }}
             open={props.open}
+            inline={anomaly}
           />
         )}
 

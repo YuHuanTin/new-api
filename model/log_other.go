@@ -238,6 +238,12 @@ func formatLogOtherJSON(value string, visibility logOtherVisibility) string {
 		return ""
 	}
 
+	if visibility == logOtherVisibilityAdmin {
+		if stripped, changed := stripLogAnomalyCapture(value); changed {
+			value = stripped
+		}
+	}
+
 	var values map[string]json.RawMessage
 	if err := common.UnmarshalJsonStr(value, &values); err != nil {
 		if visibility == logOtherVisibilityRoot {
@@ -263,13 +269,23 @@ func formatLogOtherJSON(value string, visibility logOtherVisibility) string {
 	} else {
 		changed = normalizeLegacyRejectReason(values)
 		if visibility == logOtherVisibilityAdmin {
+			// 抓包标记也只向 root 展示，管理员列表不透露是否保存了抓包。
+			var adminInfo map[string]json.RawMessage
+			if raw, exists := values[logOtherAdminInfoKey]; exists && common.Unmarshal(raw, &adminInfo) == nil {
+				if _, exists := adminInfo[logOtherAnomalyCapturedKey]; exists {
+					delete(adminInfo, logOtherAnomalyCapturedKey)
+					if len(adminInfo) == 0 {
+						delete(values, logOtherAdminInfoKey)
+					} else if encoded, err := common.Marshal(adminInfo); err == nil {
+						values[logOtherAdminInfoKey] = encoded
+					}
+					changed = true
+				}
+			}
 			if _, exists := values[logOtherRootInfoKey]; exists {
 				delete(values, logOtherRootInfoKey)
 				changed = true
 			}
-		}
-		if restoreCompressedAnomaly(values) {
-			changed = true
 		}
 	}
 

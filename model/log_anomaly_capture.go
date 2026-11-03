@@ -97,22 +97,37 @@ func logAnomalyCaptureSize(other string) (int64, bool) {
 	return int64(len(anomaly)), true
 }
 
-// GetLogAnomalyCapture 返回解压后的抓包现场；found 为 false 表示日志不存在
-func GetLogAnomalyCapture(locator LogLocator) (anomaly map[string]any, found bool, err error) {
+// GetLogAnomalyCapture 原样返回 gzip+Base64，不在后端解压；旧对象仅在读取时压缩，不改写记录。
+func GetLogAnomalyCapture(locator LogLocator) (anomaly string, found bool, err error) {
 	condition, args := locator.condition()
 	var logs []*Log
 	if err := LOG_DB.Select("id", "other").Where(condition, args...).Limit(1).Find(&logs).Error; err != nil {
-		return nil, false, err
+		return "", false, err
 	}
 	if len(logs) == 0 {
-		return nil, false, nil
+		return "", false, nil
 	}
-	FormatAdminLogs(logs)
-	stored, err := common.StrToMap(logs[0].Other)
-	if err != nil {
-		return nil, true, err
+	var stored map[string]json.RawMessage
+	if err := common.UnmarshalJsonStr(logs[0].Other, &stored); err != nil {
+		return "", true, err
 	}
-	adminInfo, _ := stored[logOtherAdminInfoKey].(map[string]any)
-	anomaly, _ = adminInfo[logOtherAnomalyKey].(map[string]any)
-	return anomaly, true, nil
+	if len(stored[logOtherAdminInfoKey]) == 0 {
+		return "", true, nil
+	}
+	var adminInfo map[string]json.RawMessage
+	if err := common.Unmarshal(stored[logOtherAdminInfoKey], &adminInfo); err != nil {
+		return "", true, err
+	}
+	raw := adminInfo[logOtherAnomalyKey]
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", true, nil
+	}
+	var encoded string
+	if err := common.Unmarshal(raw, &encoded); err == nil {
+		if strings.HasPrefix(encoded, "gz:") {
+			return encoded, true, nil
+		}
+		return common.CompressText(encoded), true, nil
+	}
+	return common.CompressText(string(raw)), true, nil
 }

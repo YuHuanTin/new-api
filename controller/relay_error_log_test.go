@@ -2,8 +2,10 @@ package controller
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -67,6 +70,25 @@ func TestProcessChannelErrorUsesSnapshotWithoutLeakingChannelMetadata(t *testing
 		ChannelName: "snapshot-channel",
 		AutoBan:     false,
 	}
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Set-Cookie", "upstream-session=secret")
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = io.WriteString(w, "upstream error body")
+	}))
+	defer upstream.Close()
+	client := service.WithUpstreamCapture(ctx, upstream.Client())
+	req, err := http.NewRequest(http.MethodPost, upstream.URL, strings.NewReader("converted request"))
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer upstream-secret")
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	_, err = io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	var count int64
+	require.NoError(t, database.Model(&model.Log{}).Count(&count).Error)
+	assert.Zero(t, count, "transport capture alone must not persist a log")
 	apiErr := types.NewOpenAIError(errors.New("upstream failed"), types.ErrorCodeBadResponseStatusCode, http.StatusBadGateway)
 
 	processChannelError(ctx, channelSnapshot, apiErr, nil)
@@ -84,6 +106,13 @@ func TestProcessChannelErrorUsesSnapshotWithoutLeakingChannelMetadata(t *testing
 	require.True(t, ok)
 	assert.Equal(t, []any{"101"}, adminInfo["use_channel"])
 
+	rootLogs := []*model.Log{{Other: stored.Other}}
+	model.FormatRootLogs(rootLogs)
+	assert.Contains(t, common.DecompressText(adminInfo["anomaly"].(string)), "upstream-secret")
+	assert.Contains(t, common.DecompressText(adminInfo["anomaly"].(string)), "converted request")
+	adminLogs := []*model.Log{{Other: stored.Other}}
+	model.FormatAdminLogs(adminLogs)
+	assert.NotContains(t, adminLogs[0].Other, "anomaly")
 	logs, total, err := model.GetUserLogs(7, model.LogFilter{Type: model.LogTypeError}, 0, 10)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), total)

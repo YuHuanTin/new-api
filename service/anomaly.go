@@ -1,282 +1,395 @@
 package service
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
+	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"net/http/httptrace"
+	"slices"
 	"strings"
-	"unicode/utf8"
+	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
-
 	"github.com/gin-gonic/gin"
 )
 
 const (
-	// anomalyUpstreamResponseKey 是请求上下文里存放上游失败响应现场的键
-	anomalyUpstreamResponseKey = "anomaly_upstream_response"
-	// anomalyUpstreamRequestKey 是请求上下文里存放上游请求行的键
-	anomalyUpstreamRequestKey = "anomaly_upstream_request"
-	// anomalyCompressedKey 缓存本次请求已经压缩过的现场，重试和最终消耗日志
-	// 往往保存同一份内容，不必重复压缩
+	anomalyCaptureKey    = "anomaly_upstream_capture"
 	anomalyCompressedKey = "anomaly_compressed"
-	// anomalyLogKey 是异常现场在 logs.other 管理员可见部分里的键
-	anomalyLogKey = "anomaly"
-	// anomalyMaxRawBytes 是总预算
-	anomalyMaxRawBytes = 4 << 20
-	// anomalyTruncatedSuffix 标记内容被截断，读日志时一眼能看出来
-	anomalyTruncatedSuffix = "...(truncated)"
+	anomalyLogKey        = "anomaly"
+	anomalyMaxRawBytes   = 4 << 20
+	anomalyOmitted       = "(omited...)"
 )
 
-// upstreamResponse 是上游失败响应的现场。Headers 直接引用原 map，落库前才复制
-type upstreamResponse struct {
-	Status  int
-	Headers http.Header
-	Body    string
-}
-
-// upstreamRequest 是真正发给上游的请求行
-type upstreamRequest struct {
-	Method string
-	URL    string
-}
-
-// compressedAnomaly 是本次请求已经压好的现场。digest 用来判断新现场是否与它
-// 相同：同一份内容重试、错误日志和最终消耗日志都会再写一次
 type compressedAnomaly struct {
 	digest     [sha256.Size]byte
 	compressed string
 }
 
-// RecordUpstreamRequest 记下实际发往上游的方法和完整地址。客户端请求的是本站
-// 地址，排查时更需要看到上游被调用的那个 URL
-func RecordUpstreamRequest(c *gin.Context, req *http.Request) {
-	if c == nil || req == nil || req.URL == nil {
-		return
-	}
-	c.Set(anomalyUpstreamRequestKey, upstreamRequest{
-		Method: req.Method,
-		URL:    req.URL.String(),
-	})
+// upstreamCapture 只记录一次网关与上游之间的 HTTP 交换。
+// 正文随传输层读取而记录，不回读客户端请求，也不使用协议解析结果或下游响应拼接正文。
+type upstreamCapture struct {
+	mu                                  sync.Mutex
+	method, url                         string
+	headers                             http.Header
+	status                              int
+	responseHeaders                     http.Header
+	requestBody, responseBody           []byte
+	requestTruncated, responseTruncated bool
+	responseReadFailed                  bool
+	requestTrailers, responseTrailers   http.Header
 }
 
-// RecordUpstreamResponse 记下上游失败响应的状态码、响应头和响应体；只在失败分支调用
-func RecordUpstreamResponse(c *gin.Context, resp *http.Response, body []byte) {
-	if c == nil || resp == nil {
-		return
-	}
-	c.Set(anomalyUpstreamResponseKey, upstreamResponse{
-		Status:  resp.StatusCode,
-		Headers: resp.Header,
-		Body:    truncateAnomalyBodyBytes(body),
-	})
+type upstreamCaptureTransport struct {
+	base    http.RoundTripper
+	context *gin.Context
 }
 
-// RecordUpstreamStreamBody 记下流里的失败帧；流式请求的 HTTP 状态码和响应头仍取自 resp
-func RecordUpstreamStreamBody(c *gin.Context, resp *http.Response, body string) {
-	if c == nil || body == "" {
-		return
+// WithUpstreamCapture 创建请求级客户端包装，继续复用原 transport 和连接池，不修改共享客户端。
+func WithUpstreamCapture(c *gin.Context, client *http.Client) *http.Client {
+	clone := *client
+	base := client.Transport
+	if base == nil {
+		base = http.DefaultTransport
 	}
-	record := upstreamResponse{Body: truncateAnomalyBody(body)}
-	if resp != nil {
-		record.Status = resp.StatusCode
-		record.Headers = resp.Header
+	clone.Transport = &upstreamCaptureTransport{base: base, context: c}
+	return &clone
+}
+
+func (t *upstreamCaptureTransport) CloseIdleConnections() { closeIdleConnections(t.base) }
+
+func (t *upstreamCaptureTransport) RoundTrip(original *http.Request) (*http.Response, error) {
+	capture := &upstreamCapture{method: original.Method, url: original.URL.String(), headers: make(http.Header)}
+	t.context.Set(anomalyCaptureKey, capture)
+	req := original.WithContext(original.Context())
+	req.Header = original.Header.Clone()
+	if req.Header == nil {
+		req.Header = make(http.Header)
 	}
-	if value, ok := c.Get(anomalyUpstreamResponseKey); ok {
-		if existing, ok := value.(upstreamResponse); ok {
-			if existing.Body != "" {
-				// HTTP 层已经留下了响应体，流里的帧不再覆盖它
-				return
+	// 仅在 net/http 原本会自动请求 gzip 时显式添加相同值，避免其提前删除响应的
+	// Content-Encoding/Content-Length。先记录原始响应，再为转发逻辑按需解压。
+	addedGzip := transportRequestsGzip(t.base) && req.Header.Get("Accept-Encoding") == "" && req.Header.Get("Range") == "" && req.Method != http.MethodHead
+	if addedGzip {
+		// 保留调用方已有的空值和多值；将自动 gzip 值放在首位，由本包装负责响应解压。
+		req.Header["Accept-Encoding"] = append([]string{"gzip"}, req.Header["Accept-Encoding"]...)
+	}
+	trace := &httptrace.ClientTrace{
+		GotConn: func(httptrace.GotConnInfo) {
+			capture.mu.Lock()
+			capture.headers = make(http.Header)
+			capture.requestBody = nil
+			capture.requestTruncated = false
+			capture.requestTrailers = nil
+			capture.mu.Unlock()
+		},
+		WroteHeaderField: func(key string, values []string) {
+			capture.mu.Lock()
+			capture.headers[key] = append(capture.headers[key], values...)
+			capture.mu.Unlock()
+		},
+	}
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+	if req.Body != nil && req.Body != http.NoBody {
+		req.Body = &upstreamCaptureBody{ReadCloser: req.Body, capture: capture, trailers: req.Trailer}
+	}
+	if original.GetBody != nil {
+		req.GetBody = func() (io.ReadCloser, error) {
+			body, err := original.GetBody()
+			if err != nil {
+				return nil, err
 			}
-			record.Status = existing.Status
-			record.Headers = existing.Headers
+			return &upstreamCaptureBody{ReadCloser: body, capture: capture, trailers: req.Trailer}, nil
 		}
 	}
-	c.Set(anomalyUpstreamResponseKey, record)
+	resp, err := t.base.RoundTrip(req)
+	if resp == nil {
+		return resp, err
+	}
+	capture.mu.Lock()
+	capture.status, capture.responseHeaders = resp.StatusCode, resp.Header.Clone()
+	if capture.responseHeaders == nil {
+		capture.responseHeaders = make(http.Header)
+	}
+	// net/http 将这两类响应头移到了独立字段，按传输层解析结果补回展示，避免漏记。
+	if len(resp.TransferEncoding) > 0 && len(capture.responseHeaders.Values("Transfer-Encoding")) == 0 {
+		capture.responseHeaders["Transfer-Encoding"] = slices.Clone(resp.TransferEncoding)
+	}
+	if len(resp.Trailer) > 0 && len(capture.responseHeaders.Values("Trailer")) == 0 {
+		names := make([]string, 0, len(resp.Trailer))
+		for name := range resp.Trailer {
+			names = append(names, name)
+		}
+		slices.Sort(names)
+		capture.responseHeaders.Set("Trailer", strings.Join(names, ", "))
+	}
+	capture.mu.Unlock()
+	if resp.Body != nil && resp.Body != http.NoBody {
+		resp.Body = &upstreamCaptureBody{ReadCloser: resp.Body, capture: capture, response: true, trailers: resp.Trailer}
+	}
+	if addedGzip && strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip") {
+		resp.Body = &upstreamGzipBody{ReadCloser: resp.Body}
+		// 对转发逻辑保持 net/http 原有的自动解压行为；抓包保留解压前的 header 和正文。
+		resp.Header = resp.Header.Clone()
+		resp.Header.Del("Content-Encoding")
+		resp.Header.Del("Content-Length")
+		resp.ContentLength = -1
+		resp.Uncompressed = true
+	}
+	return resp, err
 }
 
-// requestURL 拼出这次请求的完整地址，查询串也原样保留
-func requestURL(c *gin.Context) string {
-	request := c.Request
-	if request == nil || request.URL == nil {
-		return ""
+func transportRequestsGzip(transport http.RoundTripper) bool {
+	switch transport := transport.(type) {
+	case *http.Transport:
+		return !transport.DisableCompression
+	case *shardedRoundTripper:
+		return len(transport.shards) > 0 && transportRequestsGzip(transport.shards[0])
+	default:
+		return false
 	}
-	scheme := request.URL.Scheme
-	if scheme == "" {
-		scheme = "http"
-		if request.TLS != nil {
-			scheme = "https"
+}
+
+type upstreamGzipBody struct {
+	io.ReadCloser
+	reader *gzip.Reader
+	err    error
+}
+
+func (b *upstreamGzipBody) Read(p []byte) (int, error) {
+	if b.reader == nil && b.err == nil {
+		b.reader, b.err = gzip.NewReader(b.ReadCloser)
+	}
+	if b.err != nil {
+		return 0, b.err
+	}
+	return b.reader.Read(p)
+}
+
+type upstreamCaptureBody struct {
+	io.ReadCloser
+	capture  *upstreamCapture
+	response bool
+	trailers http.Header
+}
+
+func (b *upstreamCaptureBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if n == 0 && err == nil {
+		return n, err
+	}
+	b.capture.mu.Lock()
+	defer b.capture.mu.Unlock()
+	if b.response && err != nil && err != io.EOF {
+		b.capture.responseReadFailed = true
+	}
+	if err == io.EOF && len(b.trailers) > 0 {
+		if b.response {
+			b.capture.responseTrailers = b.trailers.Clone()
+		} else {
+			b.capture.requestTrailers = b.trailers.Clone()
 		}
 	}
-	host := request.Host
-	if host == "" {
-		host = request.URL.Host
+	body, truncated := &b.capture.requestBody, &b.capture.requestTruncated
+	if b.response {
+		body, truncated = &b.capture.responseBody, &b.capture.responseTruncated
 	}
-	if host == "" {
-		return request.URL.RequestURI()
+	// 两个方向共用暂存额度；只保留连续前缀，截断后不再追加后续片段。
+	if *truncated {
+		return n, err
 	}
-	return scheme + "://" + host + request.URL.RequestURI()
+	available := max(0, anomalyMaxRawBytes-len(b.capture.requestBody)-len(b.capture.responseBody))
+	if b.response && n > available && len(b.capture.requestBody) > 0 {
+		// 响应优先：空间不足时先裁掉请求正文尾部，尽可能完整保留上游响应。
+		remove := min(len(b.capture.requestBody), n-available)
+		b.capture.requestBody = b.capture.requestBody[:len(b.capture.requestBody)-remove]
+		b.capture.requestTruncated = true
+		available = max(0, anomalyMaxRawBytes-len(b.capture.requestBody)-len(b.capture.responseBody))
+	}
+	take := min(n, available)
+	*body = append(*body, p[:take]...)
+	if take < n {
+		*truncated = true
+	}
+	return n, err
 }
 
-// AppendAnomalyInfo 把失败现场写进日志的管理员可见部分。4 MB 预算只用于截断
-// 正文，请求头和响应头保持原样；整块压缩后再落库，清理时只删这一块
+// upstreamCaptureReadFailed 兜底识别旧适配器只记日志、未上报的上游读取失败。
+func upstreamCaptureReadFailed(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	value, _ := c.Get(anomalyCaptureKey)
+	capture, ok := value.(*upstreamCapture)
+	if !ok || capture == nil {
+		return false
+	}
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	return capture.responseReadFailed
+}
+
+// ResetUpstreamCapture 在渠道重试前清空现场，防止新尝试误用上次的响应。
+func ResetUpstreamCapture(c *gin.Context) {
+	c.Set(anomalyCaptureKey, nil)
+	c.Set(anomalyCompressedKey, nil)
+}
+
+// AppendAnomalyInfo 仅供异常日志调用。数据库和 API 保留一个 gzip+Base64 字符串，成功请求不落库。
 func AppendAnomalyInfo(c *gin.Context, other *model.LogOther) {
 	if c == nil || other == nil {
 		return
 	}
-	anomaly := map[string]any{}
-
-	if value, ok := c.Get(anomalyUpstreamRequestKey); ok {
-		if upstream, ok := value.(upstreamRequest); ok {
-			if upstream.Method != "" {
-				anomaly["request_method"] = upstream.Method
-			}
-			if upstream.URL != "" {
-				anomaly["request_url"] = upstream.URL
-			}
-		}
+	value, _ := c.Get(anomalyCaptureKey)
+	capture, ok := value.(*upstreamCapture)
+	if !ok || capture == nil {
+		return
 	}
-	if c.Request != nil {
-		if _, ok := anomaly["request_method"]; !ok {
-			anomaly["request_method"] = c.Request.Method
-		}
-		if _, ok := anomaly["request_url"]; !ok {
-			anomaly["request_url"] = requestURL(c)
-		}
-		if storage, err := common.GetBodyStorage(c); err == nil {
-			if reader, err := storage.NewReader(); err == nil {
-				buf := make([]byte, anomalyMaxRawBytes+1)
-				n, _ := io.ReadFull(reader, buf)
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	requestBody, responseBody := capture.requestBody, capture.responseBody
+	requestTruncated, responseTruncated := capture.requestTruncated, capture.responseTruncated
+	mediaType, _, _ := mime.ParseMediaType(capture.responseHeaders.Get("Content-Type"))
+	if mediaType == "text/event-stream" {
+		if strings.EqualFold(capture.responseHeaders.Get("Content-Encoding"), "gzip") {
+			reader, err := gzip.NewReader(bytes.NewReader(responseBody))
+			if err == nil {
+				decoded, readErr := io.ReadAll(io.LimitReader(reader, anomalyMaxRawBytes+1))
 				_ = reader.Close()
-				if n > 0 {
-					anomaly["request_body"] = truncateAnomalyBody(string(buf[:n]))
-				}
+				responseTruncated = responseTruncated || readErr != nil || len(decoded) > anomalyMaxRawBytes
+				responseBody = decoded[:min(len(decoded), anomalyMaxRawBytes)]
+			} else {
+				// 无法解压时保留原始字节，不伪造 SSE 内容。
+				mediaType = ""
 			}
 		}
-		if headers := anomalyHeaders(c.Request.Header); len(headers) > 0 {
-			anomaly["request_headers"] = headers
-		}
-	}
-	if value, ok := c.Get(anomalyUpstreamResponseKey); ok {
-		if upstream, ok := value.(upstreamResponse); ok {
-			if upstream.Status > 0 {
-				anomaly["upstream_status"] = upstream.Status
-			}
-			if headers := anomalyHeaders(upstream.Headers); len(headers) > 0 {
-				anomaly["upstream_headers"] = headers
-			}
-			if upstream.Body != "" {
-				anomaly["upstream_body"] = upstream.Body
-			}
+		if mediaType == "text/event-stream" {
+			responseBody = sseCaptureData(responseBody)
 		}
 	}
-	if len(anomaly) == 0 {
+	// 保留传输层提供的 header 值，不脱敏、不替换；顺序、大小写和 HTTP/2 帧由 net/http 管理。
+	var requestHead, responseHead strings.Builder
+	fmt.Fprintf(&requestHead, ">>> %s %s\n", capture.method, capture.url)
+	writeCaptureHeaders(&requestHead, capture.headers)
+	if capture.status > 0 {
+		fmt.Fprintf(&responseHead, "<<< HTTP %d\n", capture.status)
+	} else {
+		responseHead.WriteString("<<<\n")
+	}
+	writeCaptureHeaders(&responseHead, capture.responseHeaders)
+	var trailers strings.Builder
+	writeCaptureHeaders(&trailers, capture.requestTrailers)
+	writeCaptureHeaders(&trailers, capture.responseTrailers)
+	if requestHead.Len()+responseHead.Len()+trailers.Len()+5 >= anomalyMaxRawBytes {
+		other.SetAdmin(anomalyLogKey, common.CompressText("[capture: Headers exceed the 4 MiB capture limit]"))
 		return
 	}
-	payload := fitAnomalyPayload(anomaly)
-	if len(payload) == 0 {
-		return
-	}
-	other.SetAdmin(anomalyLogKey, compressAnomalyPayload(c, payload))
-}
-
-// compressAnomalyPayload 压缩现场，并复用本次请求里内容相同的上一次结果
-func compressAnomalyPayload(c *gin.Context, payload []byte) string {
-	digest := sha256.Sum256(payload)
-	if value, ok := c.Get(anomalyCompressedKey); ok {
-		if cached, ok := value.(compressedAnomaly); ok && cached.digest == digest {
-			return cached.compressed
+	for {
+		var raw strings.Builder
+		raw.WriteString(requestHead.String())
+		raw.WriteByte('\n')
+		raw.Write(requestBody)
+		if requestTruncated {
+			raw.WriteString(anomalyOmitted)
+		}
+		raw.WriteString("\n\n")
+		writeCaptureHeaders(&raw, capture.requestTrailers)
+		raw.WriteString(responseHead.String())
+		raw.WriteByte('\n')
+		raw.Write(responseBody)
+		if responseTruncated {
+			raw.WriteString(anomalyOmitted)
+		}
+		raw.WriteByte('\n')
+		writeCaptureHeaders(&raw, capture.responseTrailers)
+		// 以解压后的完整报文计限额，分隔符和省略标记也计入；压缩后的存储值同样受限。
+		remove := raw.Len() - (anomalyMaxRawBytes - 1)
+		if remove <= 0 {
+			digest := sha256.Sum256([]byte(raw.String()))
+			cached, _ := c.Get(anomalyCompressedKey)
+			compressed, ok := cached.(compressedAnomaly)
+			if !ok || compressed.digest != digest {
+				compressed = compressedAnomaly{digest: digest, compressed: common.CompressText(raw.String())}
+				c.Set(anomalyCompressedKey, compressed)
+			}
+			if len(compressed.compressed)+2 < anomalyMaxRawBytes {
+				other.SetAdmin(anomalyLogKey, compressed.compressed)
+				return
+			}
+			// 不可压缩的二进制数据可能因 Base64 膨胀超限，按超出量缩减后重新压缩。
+			remove = max(1, (len(compressed.compressed)+2-anomalyMaxRawBytes+1)*3/4+64)
+		}
+		if len(requestBody) == 0 && len(responseBody) == 0 {
+			other.SetAdmin(anomalyLogKey, common.CompressText("[capture: Headers exceed the 4 MiB capture limit]"))
+			return
+		}
+		// 先裁请求正文；请求已经清空而响应本身仍超限时，才裁响应正文。
+		if len(requestBody) > 0 {
+			if !requestTruncated {
+				remove += len(anomalyOmitted)
+			}
+			requestBody = requestBody[:len(requestBody)-min(remove, len(requestBody))]
+			requestTruncated = true
+		} else {
+			if !responseTruncated {
+				remove += len(anomalyOmitted)
+			}
+			responseBody = responseBody[:len(responseBody)-min(remove, len(responseBody))]
+			responseTruncated = true
 		}
 	}
-	compressed := common.CompressText(string(payload))
-	c.Set(anomalyCompressedKey, compressedAnomaly{digest: digest, compressed: compressed})
-	return compressed
 }
 
-// fitAnomalyPayload 把现场序列化到 4 MB 以内，只截断正文里较大的那个；
-// 头不截断也不丢弃，保证原始头完整
-func fitAnomalyPayload(anomaly map[string]any) []byte {
-	payload, err := common.Marshal(anomaly)
-	if err != nil {
-		return nil
+func writeCaptureHeaders(out *strings.Builder, headers http.Header) {
+	names := make([]string, 0, len(headers))
+	for name := range headers {
+		names = append(names, name)
 	}
-	for len(payload) > anomalyMaxRawBytes && halveLargestAnomalyBody(anomaly) {
-		payload, err = common.Marshal(anomaly)
-		if err != nil {
-			return nil
+	slices.Sort(names)
+	for _, name := range names {
+		for _, value := range headers[name] {
+			fmt.Fprintf(out, "%s: %s\n", name, value)
 		}
 	}
-	return payload
 }
 
-// halveLargestAnomalyBody 把两个正文里较长的那个砍掉一半，返回是否还有可砍的
-// 内容。截断点落在 UTF-8 字符边界上，避免写出半个字符
-func halveLargestAnomalyBody(anomaly map[string]any) bool {
-	key := ""
-	length := 0
-	for _, candidate := range []string{"request_body", "upstream_body"} {
-		value, ok := anomaly[candidate].(string)
-		if !ok {
+// sseCaptureData 只剥离 SSE 封装，不解析或改写 data 里的 JSON。
+// 支持 LF、CRLF、CR 换行、多行 data、流开头的 BOM，以及中断时尚未换行的 data 片段。
+// 未发现 data 字段时保留原文，避免上游错误标注 Content-Type 导致抓包内容丢失。
+func sseCaptureData(body []byte) []byte {
+	var out bytes.Buffer
+	first := true
+	remaining := bytes.TrimPrefix(body, []byte{0xef, 0xbb, 0xbf})
+	for len(remaining) > 0 {
+		end := bytes.IndexAny(remaining, "\r\n")
+		line := remaining
+		if end < 0 {
+			remaining = nil
+		} else {
+			line = remaining[:end]
+			separator := remaining[end]
+			remaining = remaining[end+1:]
+			if separator == '\r' {
+				remaining, _ = bytes.CutPrefix(remaining, []byte("\n"))
+			}
+		}
+		field, value, _ := bytes.Cut(line, []byte(":"))
+		if !bytes.Equal(field, []byte("data")) {
 			continue
 		}
-		value = strings.TrimSuffix(value, anomalyTruncatedSuffix)
-		if len(value) == 0 {
-			continue
+		value, _ = bytes.CutPrefix(value, []byte(" "))
+		if !first {
+			out.WriteByte('\n')
 		}
-		if len(value) > length {
-			key, length = candidate, len(value)
-		}
+		out.Write(value)
+		first = false
 	}
-	if key == "" {
-		return false
-	}
-	body := strings.TrimSuffix(anomaly[key].(string), anomalyTruncatedSuffix)
-	cut := len(body) / 2
-	for cut > 0 && !utf8.RuneStart(body[cut]) {
-		cut--
-	}
-	anomaly[key] = body[:cut] + anomalyTruncatedSuffix
-	return true
-}
-
-// truncateAnomalyBody 截断单个正文，并标记被截断的事实。单条正文最多留
-// 4 MB，这里只是提前省掉一份用不上的内存
-func truncateAnomalyBody(body string) string {
-	if len(body) <= anomalyMaxRawBytes {
+	if first {
 		return body
 	}
-	cut := anomalyMaxRawBytes
-	for cut > 0 && !utf8.RuneStart(body[cut]) {
-		cut--
-	}
-	return body[:cut] + anomalyTruncatedSuffix
-}
-
-// truncateAnomalyBodyBytes 先按字节截断再转字符串，避免为一个用不上的大响应
-// 整体复制一份
-func truncateAnomalyBodyBytes(body []byte) string {
-	if len(body) == 0 {
-		return ""
-	}
-	if len(body) <= anomalyMaxRawBytes {
-		return string(body)
-	}
-	cut := anomalyMaxRawBytes
-	for cut > 0 && !utf8.RuneStart(body[cut]) {
-		cut--
-	}
-	return string(body[:cut]) + anomalyTruncatedSuffix
-}
-
-// anomalyHeaders 按原样复制头，同名多值保留为数组
-func anomalyHeaders(header http.Header) map[string][]string {
-	result := make(map[string][]string, len(header))
-	for name, values := range header {
-		if len(values) == 0 {
-			continue
-		}
-		result[name] = append([]string(nil), values...)
-	}
-	return result
+	return out.Bytes()
 }

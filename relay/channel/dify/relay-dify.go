@@ -98,7 +98,7 @@ func uploadDifyFile(c *gin.Context, info *relaycommon.RelayInfo, user string, me
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", info.ApiKey))
 
 		// Send request
-		client := service.GetHttpClient()
+		client := service.WithUpstreamCapture(c, service.GetHttpClient())
 		resp, err := client.Do(req)
 		if err != nil {
 			common.SysLog(common.LogText("failed to send request: %s", err.Error()))

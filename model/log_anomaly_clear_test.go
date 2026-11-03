@@ -104,7 +104,30 @@ func TestGetLogAnomalyCaptureReadsOnDemand(t *testing.T) {
 	anomaly, found, err := GetLogAnomalyCapture(LogLocator{Id: log.Id})
 	require.NoError(t, err)
 	require.True(t, found)
-	assert.Equal(t, "https://up.example.com", anomaly["request_url"], "详情按需读到解压后的现场")
+	assert.Equal(t, common.CompressText(`{"request_url":"https://up.example.com","upstream_status":502}`), anomaly)
+
+	for _, storedCapture := range []string{
+		`{"request_body":"old secret","large_integer":9007199254740993}`,
+		`"old plain text"`,
+		`null`,
+	} {
+		legacyOther := `{"admin_info":{"anomaly":` + storedCapture + `}}`
+		require.NoError(t, db.Model(&Log{}).Where("id = ?", log.Id).Update("other", legacyOther).Error)
+		encoded, found, err := GetLogAnomalyCapture(LogLocator{Id: log.Id})
+		require.NoError(t, err)
+		require.True(t, found)
+		switch storedCapture {
+		case `null`:
+			assert.Empty(t, encoded)
+		case `"old plain text"`:
+			assert.Equal(t, "old plain text", common.DecompressText(encoded))
+		default:
+			assert.Equal(t, storedCapture, common.DecompressText(encoded))
+		}
+		var unchanged Log
+		require.NoError(t, db.First(&unchanged, log.Id).Error)
+		assert.Equal(t, legacyOther, unchanged.Other, "reading legacy records must not rewrite them")
+	}
 
 	_, found, err = GetLogAnomalyCapture(LogLocator{Id: log.Id + 1000})
 	require.NoError(t, err)

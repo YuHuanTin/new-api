@@ -396,6 +396,40 @@ func TestAwsStreamHandlerUsesFinalUpstreamUsage(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), "[DONE]")
 }
 
+func TestAwsStreamHandlerClassifiesIncompleteBinaryStreams(t *testing.T) {
+	for _, tc := range []struct {
+		name                string
+		complete, truncated bool
+	}{
+		{name: "completed", complete: true},
+		{name: "missing_message_stop"},
+		{name: "truncated_binary_frame", complete: true, truncated: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var body bytes.Buffer
+			require.NoError(t, writeAwsStreamEvent(&body, `{"type":"message_start","message":{"id":"msg_test","role":"assistant","content":[],"usage":{"input_tokens":5,"output_tokens":1}}}`))
+			require.NoError(t, writeAwsStreamEvent(&body, `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial"}}`))
+			if tc.complete {
+				require.NoError(t, writeAwsStreamEvent(&body, `{"type":"message_stop"}`))
+			}
+			wire := body.Bytes()
+			if tc.truncated {
+				wire = wire[:len(wire)-5]
+			}
+			client := newAwsTestClient(awsHTTPClientFunc(func(request *http.Request) (*http.Response, error) {
+				return newAwsStreamResponse(request, io.NopCloser(bytes.NewReader(wire))), nil
+			}))
+			info := newAwsTestRelayInfo()
+			c := newAwsTestContext(httptest.NewRecorder(), context.Background())
+			handlerErr, usage := awsStreamHandler(c, info, &Adaptor{AwsClient: client, AwsReq: newAwsStreamInput()})
+			require.Nil(t, handlerErr, "保持原有的部分用量结算路径")
+			require.NotNil(t, usage)
+			require.NotNil(t, info.StreamStatus)
+			assert.Equal(t, !tc.complete || tc.truncated, info.StreamStatus.Failed())
+		})
+	}
+}
+
 func TestAwsStreamHandlerStopsAtClientCancellation(t *testing.T) {
 	originalRelayTimeout := common.RelayTimeout
 	common.RelayTimeout = 0

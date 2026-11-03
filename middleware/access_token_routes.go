@@ -58,6 +58,18 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"GET /api/verify/methods":             accessTokenAnyRule,
 	"POST /api/verify":                    accessTokenAnyRule,
 
+	// 异常诊断仅允许登录会话访问，PAT 和旧版 access token 均不放行。
+	// 抓包详情还由路由上的 RootAuth 限制为 root；此前未声明路由时只会默认拒绝带 scope 的 PAT。
+	"GET /api/exception/capture":               accessTokenSessionRule,
+	"GET /api/exception/capture_size":          accessTokenSessionRule,
+	"GET /api/exception/capture_setting":       accessTokenSessionRule,
+	"PATCH /api/exception/capture_setting":     accessTokenSessionRule,
+	"POST /api/exception/clear_capture":        accessTokenSessionRule,
+	"GET /api/exception/cyber_guard":           accessTokenSessionRule,
+	"PATCH /api/exception/cyber_guard":         accessTokenSessionRule,
+	"GET /api/exception/cyber_guard/channels":  accessTokenSessionRule,
+	"PATCH /api/exception/cyber_guard/channel": accessTokenSessionRule,
+
 	// router/api-router.go: /api/user (self)
 	"GET /api/user/sessions":                       accessTokenSessionRule,
 	"DELETE /api/user/sessions/:sid":               accessTokenSessionRule,

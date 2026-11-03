@@ -98,6 +98,13 @@ func AppendRelayLogAdminInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 
 func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelRatio, groupRatio, completionRatio float64,
 	cacheTokens int, cacheRatio float64, modelPrice float64, userGroupRatio float64) *model.LogOther {
+	if relayInfo.IsStream && upstreamCaptureReadFailed(ctx) {
+		if relayInfo.StreamStatus == nil {
+			relayInfo.StreamStatus = relaycommon.NewStreamStatus()
+		}
+		// 只补失败分类，不把读取错误中可能包含的上游数据放到公开日志。
+		relayInfo.StreamStatus.MarkFailed("", "", 0)
+	}
 	MarkRequestPolicySuccess(ctx, relayInfo.StreamStatus)
 	other := model.NewLogOther()
 	other.SetPublic("model_ratio", modelRatio)

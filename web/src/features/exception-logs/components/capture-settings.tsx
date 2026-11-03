@@ -14,7 +14,9 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { handleServerError } from '@/lib/handle-server-error'
+import { ROLE } from '@/lib/roles'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   clearAllExceptionCapture,
@@ -46,6 +48,9 @@ function formatBytes(bytes: number): string {
 // 抓包数据保留时长，超过后由后台任务清理
 export function CaptureSettings() {
   const { t } = useTranslation()
+  const isRoot = useAuthStore(
+    (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
+  )
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [clearAllOpen, setClearAllOpen] = useState(false)
@@ -53,6 +58,7 @@ export function CaptureSettings() {
 
   const { data } = useQuery({
     queryKey: ['capture-setting'],
+    enabled: isRoot,
     queryFn: async () => {
       const result = await getCaptureSetting()
       return readCaptureSetting(result.options)
@@ -63,7 +69,7 @@ export function CaptureSettings() {
   const usageQuery = useQuery({
     queryKey: ['capture-usage'],
     queryFn: getCaptureUsage,
-    enabled: open,
+    enabled: isRoot && open,
   })
 
   useEffect(() => {
@@ -102,6 +108,8 @@ export function CaptureSettings() {
       handleServerError(error, t('Failed to clear capture data'))
     },
   })
+
+  if (!isRoot) return null
 
   return (
     <>

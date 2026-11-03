@@ -6,6 +6,8 @@ import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { formatTimestampToDate } from '@/lib/format'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { parseExceptionLogOther, type ExceptionLog } from '../types'
 
@@ -30,8 +32,11 @@ export function useExceptionLogsColumns(
   onOpenDetails: (log: ExceptionLog) => void
 ): ColumnDef<ExceptionLog>[] {
   const { t } = useTranslation()
-  return useMemo<ColumnDef<ExceptionLog>[]>(
-    () => [
+  const isRoot = useAuthStore(
+    (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
+  )
+  return useMemo<ColumnDef<ExceptionLog>[]>(() => {
+    const columns: ColumnDef<ExceptionLog>[] = [
       {
         id: 'select',
         header: ({ table }) => (
@@ -151,6 +156,7 @@ export function useExceptionLogsColumns(
         header: '',
         cell: ({ row }) => {
           const hasCapture =
+            isRoot &&
             parseExceptionLogOther(row.original.other).admin_info
               ?.anomaly_captured === true
           return (
@@ -167,7 +173,7 @@ export function useExceptionLogsColumns(
         enableHiding: false,
         size: 100,
       },
-    ],
-    [onOpenDetails, t]
-  )
+    ]
+    return columns.filter((column) => isRoot || column.id !== 'select')
+  }, [onOpenDetails, t, isRoot])
 }

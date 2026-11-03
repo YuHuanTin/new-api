@@ -66,6 +66,7 @@ func newAwsClient(c *gin.Context, info *relaycommon.RelayInfo) (*bedrockruntime.
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
 	}
 
+	httpClient = service.WithUpstreamCapture(c, httpClient)
 	awsSecret := strings.Split(info.ApiKey, "|")
 	var client *bedrockruntime.Client
 	switch len(awsSecret) {
@@ -259,6 +260,9 @@ func awsHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (*types
 }
 
 func awsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (*types.NewAPIError, *dto.Usage) {
+	// SDK 负责解析二进制事件流，这里同步结束状态，异常日志才能保存传输层现场。
+	info.StreamStatus = relaycommon.NewStreamStatus()
+	info.StreamStatus.RequireTerminal()
 	requestContext := c.Request.Context()
 	ctx, cancel := newAwsInvokeContext(requestContext)
 	defer cancel()
@@ -309,6 +313,19 @@ streamLoop:
 		}
 	}
 
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, context.DeadlineExceeded)
+	case ctx.Err() != nil:
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, context.Canceled)
+	case stream.Err() != nil:
+		// SDK 错误可能带上游内容；公开的流状态只记分类，原文留在 root 抓包里。
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, nil)
+	case info.StreamStatus.ResponseOutcome() != string(relaycommon.ResponseOutcomeCompleted):
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, io.ErrUnexpectedEOF)
+	default:
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
+	}
 	_ = stream.Close()
 	claude.HandleStreamFinalResponse(c, info, claudeInfo)
 	return nil, claudeInfo.Usage

@@ -7,7 +7,9 @@ import { DataTablePage, useDataTable } from '@/components/data-table'
 import { getDefaultTimeRange } from '@/features/usage-logs/lib/utils'
 import { useAutoRefresh, useAutoRefreshTick } from '@/hooks/use-auto-refresh'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
+import { ROLE } from '@/lib/roles'
 import { createServerError } from '@/lib/server-error-message'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { getExceptionLogs } from '../api'
 import type { ExceptionLog } from '../types'
@@ -23,6 +25,9 @@ const route = getRouteApi('/_authenticated/exception-logs/')
 
 export function ExceptionLogsTable() {
   const { t } = useTranslation()
+  const isRoot = useAuthStore(
+    (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
+  )
   const [detailLog, setDetailLog] = useState<ExceptionLog | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const search = route.useSearch()
@@ -151,7 +156,7 @@ export function ExceptionLogsTable() {
     manualFiltering: true,
     totalCount: data?.total ?? 0,
     ensurePageInRange,
-    enableRowSelection: true,
+    enableRowSelection: isRoot,
   })
 
   return (
@@ -168,9 +173,11 @@ export function ExceptionLogsTable() {
         )}
         skeletonKeyPrefix='exception-logs-skeleton'
         applyHeaderSize
-        showMobileBulkActions
-        mobileProps={{ enableRowSelection: true }}
-        bulkActions={<ExceptionClearCapture table={table} />}
+        showMobileBulkActions={isRoot}
+        mobileProps={{ enableRowSelection: isRoot }}
+        bulkActions={
+          isRoot ? <ExceptionClearCapture table={table} /> : undefined
+        }
         toolbar={
           <ExceptionLogsFilterBar
             table={table}

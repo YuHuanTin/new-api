@@ -9,6 +9,8 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DataTableBulkActions } from '@/components/data-table'
 import { Button } from '@/components/ui/button'
 import { handleServerError } from '@/lib/handle-server-error'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { clearExceptionCapture, type ExceptionLogLocator } from '../api'
 import type { ExceptionLog } from '../types'
@@ -23,6 +25,9 @@ type ExceptionClearCaptureProps = {
  */
 export function ExceptionClearCapture({ table }: ExceptionClearCaptureProps) {
   const { t } = useTranslation()
+  const isRoot = useAuthStore(
+    (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
+  )
   const queryClient = useQueryClient()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const selectedRows = table.getFilteredSelectedRowModel().rows
@@ -32,6 +37,7 @@ export function ExceptionClearCapture({ table }: ExceptionClearCaptureProps) {
     onSuccess: async (result) => {
       setConfirmOpen(false)
       table.resetRowSelection()
+      await queryClient.invalidateQueries({ queryKey: ['exception-capture'] })
       toast.success(
         t('Cleared capture data for {{count}} requests', {
           count: result.cleared,
@@ -53,6 +59,8 @@ export function ExceptionClearCapture({ table }: ExceptionClearCaptureProps) {
     if (items.length === 0) return
     mutation.mutate(items)
   }
+
+  if (!isRoot) return null
 
   return (
     <>

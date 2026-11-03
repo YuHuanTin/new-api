@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
@@ -468,6 +469,8 @@ func TestUpstreamGetBody_HTTP2RetryAfterUpstreamStreamReset(t *testing.T) {
 
 	client, transport := newH2PriorKnowledgeClient(ln)
 	defer transport.CloseIdleConnections()
+	captureContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+	client = service.WithUpstreamCapture(captureContext, client)
 
 	// Build the upstream request exactly the way DoApiRequest does: pass the
 	// original replayable body to the metadata helper after NewRequest.
@@ -491,6 +494,15 @@ func TestUpstreamGetBody_HTTP2RetryAfterUpstreamStreamReset(t *testing.T) {
 	require.Len(t, srv.attemptBodies, 2)
 	assert.Equal(t, payload, srv.attemptBodies[0], "first attempt must carry the full body")
 	assert.Equal(t, payload, srv.attemptBodies[1], "the retried request must carry the complete body")
+	other := model.NewLogOther()
+	service.AppendAnomalyInfo(captureContext, other)
+	logs := []*model.Log{{Other: other.JSONString()}}
+	model.FormatRootLogs(logs)
+	stored, err := common.StrToMap(logs[0].Other)
+	require.NoError(t, err)
+	anomaly := common.DecompressText(stored["admin_info"].(map[string]any)["anomaly"].(string))
+	assert.Contains(t, anomaly, "\n\n"+string(payload)+"\n\n", "capture must contain the retried body once, not concatenated attempts")
+
 }
 
 func TestUpstreamGetBody_HTTP2RetryAfterUpstreamStreamReset_PassThrough(t *testing.T) {

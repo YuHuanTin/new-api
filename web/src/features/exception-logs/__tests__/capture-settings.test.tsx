@@ -1,11 +1,19 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { api } from '@/lib/api'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { CaptureSettings } from '../components/capture-settings'
+
+beforeEach(() => {
+  useAuthStore
+    .getState()
+    .auth.setUser({ id: 1, username: 'root', role: ROLE.SUPER_ADMIN })
+})
 
 function renderPanel() {
   const client = new QueryClient({
@@ -32,6 +40,7 @@ function mockNetwork(options: Record<string, string> = {}) {
 }
 
 afterEach(() => {
+  useAuthStore.setState(useAuthStore.getInitialState(), true)
   vi.restoreAllMocks()
 })
 
@@ -106,3 +115,16 @@ test('does not clear captures when the confirmation is cancelled', async () => {
 
   expect(post).not.toHaveBeenCalled()
 })
+
+test.each([ROLE.ADMIN, ROLE.USER])(
+  'hides capture settings and skips capture APIs for role %s',
+  (role) => {
+    useAuthStore.getState().auth.setUser({ id: 2, username: 'viewer', role })
+    const get = mockNetwork()
+    renderPanel()
+    expect(
+      screen.queryByRole('button', { name: /Capture Evidence/ })
+    ).toBeNull()
+    expect(get).not.toHaveBeenCalled()
+  }
+)

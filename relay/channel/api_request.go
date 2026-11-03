@@ -463,7 +463,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	// behavior on a shallow copy instead of mutating the cached client. This
 	// still reuses its transport and connection pools, including HTTP/2's
 	// transparent stream retries.
-	relayClient := *client
+	relayClient := service.WithUpstreamCapture(c, client)
 	relayClient.CheckRedirect = keepUpstreamRedirectResponse
 	if common2.DebugEnabled && req != nil && req.URL != nil {
 		policy := service.NormalizeHTTPTransportPolicy(info.ChannelSetting)
@@ -486,8 +486,6 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	}
 
 	common2.SetContextKey(c, appconstant.ContextKeyUpstreamRequestOrigin, req.URL.Scheme+"://"+req.URL.Host)
-	// 失败时异常管理要展示真正被调用的上游地址
-	service.RecordUpstreamRequest(c, req)
 	resp, err := relayClient.Do(req)
 	if err != nil {
 		logger.LogError(c, common2.LogText("do request failed: %s", err.Error()))

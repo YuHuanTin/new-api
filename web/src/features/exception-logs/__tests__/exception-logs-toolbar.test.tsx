@@ -8,13 +8,21 @@ import {
 } from '@tanstack/react-router'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { api } from '@/lib/api'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { ExceptionLogs } from '..'
 import { ExceptionLogsTable } from '../components/exception-logs-table'
 import type { ExceptionLog } from '../types'
+
+beforeEach(() => {
+  useAuthStore
+    .getState()
+    .auth.setUser({ id: 1, username: 'root', role: ROLE.SUPER_ADMIN })
+})
 
 const log: ExceptionLog = {
   id: 1,
@@ -77,6 +85,7 @@ async function renderTable(fullPage = false) {
 }
 
 afterEach(() => {
+  useAuthStore.setState(useAuthStore.getInitialState(), true)
   cleanup()
   vi.restoreAllMocks()
 })
@@ -157,4 +166,18 @@ test('applies the typed filters only after clicking search', async () => {
     error_code: 'cyber_policy',
   })
   expect(typeof requests[1].start_timestamp).toBe('number')
+})
+
+test('keeps exception logs and cyber controls available to admin without capture controls', async () => {
+  useAuthStore
+    .getState()
+    .auth.setUser({ id: 2, username: 'admin', role: ROLE.ADMIN })
+  await renderTable(true)
+  expect(
+    screen.getByRole('button', { name: /Cyber Policy Control/ })
+  ).toBeVisible()
+  expect(screen.queryByRole('button', { name: /Capture Evidence/ })).toBeNull()
+  expect(screen.queryByRole('checkbox', { name: 'Select all' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Clear capture' })).toBeNull()
+  expect(api.get).not.toHaveBeenCalledWith('/api/exception/capture_setting')
 })

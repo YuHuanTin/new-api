@@ -1,11 +1,17 @@
+import { Blob as NodeBlob } from 'node:buffer'
+import { DecompressionStream as NodeDecompressionStream } from 'node:stream/web'
+import { gzipSync } from 'node:zlib'
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createInstance } from 'i18next'
 import { I18nextProvider } from 'react-i18next'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import en from '@/i18n/locales/en.json'
 import { api } from '@/lib/api'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { ExceptionDetailDialog } from '../components/dialogs/exception-detail-dialog'
 import type { ExceptionLog } from '../types'
@@ -24,7 +30,16 @@ void i18n.init({
   resources: { en: { translation: en.translation } },
 })
 
+beforeEach(() => {
+  vi.stubGlobal('Blob', NodeBlob)
+  vi.stubGlobal('DecompressionStream', NodeDecompressionStream)
+  useAuthStore
+    .getState()
+    .auth.setUser({ id: 1, username: 'root', role: ROLE.SUPER_ADMIN })
+})
+
 afterEach(() => {
+  useAuthStore.setState(useAuthStore.getInitialState(), true)
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   Reflect.deleteProperty(navigator, 'clipboard')
@@ -50,260 +65,204 @@ function makeLog(other: unknown): ExceptionLog {
   }
 }
 
-function renderDialog(log: ExceptionLog) {
-  return render(
-    <I18nextProvider i18n={i18n}>
-      <ExceptionDetailDialog log={log} open onOpenChange={() => undefined} />
-    </I18nextProvider>
+function renderDialog(
+  log: ExceptionLog,
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+) {
+  const element = (open: boolean) => (
+    <QueryClientProvider client={client}>
+      <I18nextProvider i18n={i18n}>
+        <ExceptionDetailDialog
+          log={log}
+          open={open}
+          onOpenChange={() => undefined}
+        />
+      </I18nextProvider>
+    </QueryClientProvider>
   )
+  const view = render(element(true))
+  return {
+    ...view,
+    setOpen: (open: boolean) => view.rerender(element(open)),
+    client,
+  }
+}
+
+const raw =
+  '>>> POST https://upstream/v1/responses\nAuthorization: Bearer upstream-secret\nX-Multi: one\nX-Multi: two\n\n{"model":"test"}\n\n<<< HTTP 502\nSet-Cookie: session=secret\n\n{"tool_calls":[{"id":"tool-1"}]}\n{"error":"partial-a'
+
+function compress(value: string | Uint8Array): string {
+  return `gz:${gzipSync(value).toString('base64')}`
+}
+
+async function captureBlock(): Promise<HTMLElement> {
+  return screen.findByText((_, node) => node?.tagName === 'PRE')
 }
 
 describe('exception detail dialog', () => {
-  it('shows request and response headers with bodies up to 4KB', () => {
-    renderDialog(
-      makeLog({
-        request_path: '/v1/chat/completions',
-        error_code: 'cyber_policy',
-        admin_info: {
-          anomaly: {
-            request_method: 'POST',
-            request_url: 'https://api.example.com/v1/chat/completions',
-            request_headers: {
-              'content-type': ['application/json'],
-              authorization: ['Bearer a', 'Bearer b'],
-            },
-            request_body: '{"model":"gpt-5.1"}',
-            upstream_status: 400,
-            upstream_headers: {
-              'set-cookie': ['a=1', 'b=2'],
-              'x-request-id': ['up-1'],
-            },
-            upstream_body: '{"error":{"code":"cyber_policy"}}',
-          },
-        },
-      })
-    )
-
-    const block = screen.getByText((_, node) => {
-      if (node?.tagName !== 'PRE') return false
-      return node.textContent?.startsWith('>>>') ?? false
-    })
-    const text = block.textContent ?? ''
-    expect(
-      text.startsWith('>>> POST https://api.example.com/v1/chat/completions')
-    ).toBe(true)
-    expect(text).toContain(`content-type: application/json
-authorization: Bearer a
-authorization: Bearer b
-
-{"model":"gpt-5.1"}
-
-<<< HTTP 400`)
-    expect(text).toContain(`set-cookie: a=1
-set-cookie: b=2
-x-request-id: up-1
-
-{"error":{"code":"cyber_policy"}}`)
+  it('decompresses and displays raw content without rebuilding headers or JSON', async () => {
+    renderDialog(makeLog({ admin_info: { anomaly: compress(raw) } }))
+    expect((await captureBlock()).textContent).toBe(raw)
     expect(screen.getByRole('button', { name: 'Download' })).toBeVisible()
   })
 
-  it('copies exactly the text shown in the exchange block', async () => {
-    const writeText = vi.fn<(text: string) => Promise<void>>()
-    writeText.mockResolvedValue()
+  it('copies the full decompressed raw string', async () => {
+    const writeText = vi
+      .fn<(text: string) => Promise<void>>()
+      .mockResolvedValue()
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText },
       configurable: true,
     })
-
-    renderDialog(
-      makeLog({
-        admin_info: {
-          anomaly: {
-            request_method: 'POST',
-            request_url: 'https://api.example.com/v1/chat/completions',
-            request_headers: { 'content-type': ['application/json'] },
-            request_body: '{"model":"gpt-5.1"}',
-            upstream_status: 400,
-            upstream_body: '{"error":{"code":"cyber_policy"}}',
-          },
-        },
-      })
-    )
-
-    const block = screen.getByText((_, node) => {
-      if (node?.tagName !== 'PRE') return false
-      return node.textContent?.startsWith('>>>') ?? false
-    })
+    renderDialog(makeLog({ admin_info: { anomaly: compress(raw) } }))
+    await captureBlock()
     fireEvent.click(screen.getByRole('button', { name: 'Copy to clipboard' }))
-    await waitFor(() =>
-      expect(writeText).toHaveBeenCalledWith(block.textContent)
-    )
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(raw))
   })
 
-  it('renders headers stored as single strings by older captures', () => {
-    renderDialog(
-      makeLog({
-        admin_info: {
-          anomaly: {
-            request_method: 'POST',
-            request_url: 'https://api.example.com/v1/chat/completions',
-            request_headers: { 'content-type': 'application/json' },
-            upstream_status: 500,
-            upstream_headers: { 'x-request-id': 'up-1' },
-          },
-        },
-      })
+  it('downloads all original bytes, including binary bytes beyond the preview', async () => {
+    const bytes = new Uint8Array([
+      ...new TextEncoder().encode(raw + 'x'.repeat(65536)),
+      255,
+      0,
+    ])
+    const createObjectURL = vi.fn<(blob: Blob | MediaSource) => string>(
+      () => 'blob:mock'
     )
-
-    const block = screen.getByText((_, node) => {
-      if (node?.tagName !== 'PRE') return false
-      return node.textContent?.startsWith('>>>') ?? false
-    })
-    expect(block.textContent).toContain('content-type: application/json')
-    expect(block.textContent).toContain('x-request-id: up-1')
-  })
-
-  it('downloads the full raw HTTP including bodies', async () => {
-    const createObjectURL = vi.fn<(blob: Blob) => string>(() => 'blob:mock')
-    const revokeObjectURL = vi.fn()
-    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL })
-    const click = vi
-      .spyOn(HTMLAnchorElement.prototype, 'click')
-      .mockImplementation(() => undefined)
-
-    renderDialog(
-      makeLog({
-        admin_info: {
-          anomaly: {
-            request_method: 'POST',
-            request_url: 'https://api.example.com/v1/chat/completions',
-            request_headers: {
-              'content-type': ['application/json'],
-              'x-trace': ['a', 'b'],
-            },
-            request_body: '{"model":"gpt-5.1"}',
-            upstream_status: 400,
-            upstream_headers: { 'x-request-id': ['up-1'] },
-            upstream_body: '{"error":{"code":"cyber_policy"}}',
-          },
-        },
-      })
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: 'Download' }))
-
-    expect(createObjectURL).toHaveBeenCalledTimes(1)
-    const blob = createObjectURL.mock.calls[0][0] as Blob
-    const text = await blob.text()
-    expect(text.startsWith('>>> POST ')).toBe(true)
-    expect(text).toContain(`{"model":"gpt-5.1"}
-
-<<< HTTP 400`)
-    expect(text).toContain(`x-request-id: up-1
-
-{"error":{"code":"cyber_policy"}}`)
-    expect(click).toHaveBeenCalled()
-    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock')
-  })
-
-  it('hides bodies larger than 4096 bytes but keeps them in the download', async () => {
-    const bigBody = 'A'.repeat(4097)
-    const createObjectURL = vi.fn<(blob: Blob) => string>(() => 'blob:mock')
-    const revokeObjectURL = vi.fn()
-    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL })
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(createObjectURL)
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(
       () => undefined
     )
-
-    renderDialog(
-      makeLog({
-        admin_info: {
-          anomaly: {
-            request_method: 'POST',
-            request_url: 'https://api.example.com/v1/chat/completions',
-            request_body: bigBody,
-            upstream_status: 500,
-            upstream_body: bigBody,
-          },
-        },
-      })
-    )
-
-    const block = screen.getByText((_, node) => {
-      if (node?.tagName !== 'PRE') return false
-      return node.textContent?.startsWith('>>>') ?? false
-    })
-    expect(block.textContent).not.toContain(bigBody.slice(0, 32))
-
+    renderDialog(makeLog({ admin_info: { anomaly: compress(bytes) } }))
+    expect((await captureBlock()).textContent).not.toContain('x'.repeat(4097))
     fireEvent.click(screen.getByRole('button', { name: 'Download' }))
     const blob = createObjectURL.mock.calls[0][0] as Blob
-    const text = await blob.text()
-    expect(text).toContain(bigBody)
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(bytes)
   })
 
-  it('loads the capture on demand when the list does not carry it', async () => {
-    vi.spyOn(api, 'get').mockResolvedValue({
-      data: {
-        success: true,
-        data: {
-          anomaly: {
-            request_method: 'POST',
-            request_url: 'https://up.example.com/v1/chat/completions',
-            upstream_status: 502,
-            upstream_body: 'bad gateway',
-          },
-        },
-      },
-    })
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    })
-    render(
-      <QueryClientProvider client={client}>
-        <I18nextProvider i18n={i18n}>
-          <ExceptionDetailDialog
-            log={makeLog({ error_code: 'upstream_error' })}
-            open
-            onOpenChange={() => undefined}
-          />
-        </I18nextProvider>
-      </QueryClientProvider>
-    )
+  it.each([
+    {
+      request: 'r'.repeat(4096),
+      response: 's'.repeat(4096),
+      hideRequest: false,
+      hideResponse: false,
+    },
+    {
+      request: 'r'.repeat(4097),
+      response: 'small response',
+      hideRequest: true,
+      hideResponse: false,
+    },
+    {
+      request: 'small request',
+      response: 's'.repeat(4097),
+      hideRequest: false,
+      hideResponse: true,
+    },
+    {
+      request: '界'.repeat(1366),
+      response: 's'.repeat(4097),
+      hideRequest: true,
+      hideResponse: true,
+    },
+  ])(
+    'hides each body independently above 4 KiB ($hideRequest/$hideResponse)',
+    async ({ request, response, hideRequest, hideResponse }) => {
+      const wire = `>>> POST https://upstream\nX-Request: original\n\n${request}\n\n<<< HTTP 502\nX-Response: original\n\n${response}\n`
+      const writeText = vi
+        .fn<(text: string) => Promise<void>>()
+        .mockResolvedValue()
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        configurable: true,
+      })
+      renderDialog(makeLog({ admin_info: { anomaly: compress(wire) } }))
+      const preview = (await captureBlock()).textContent ?? ''
+      expect(preview).toContain('X-Request: original')
+      expect(preview).toContain('X-Response: original')
+      expect(preview.includes(request)).toBe(!hideRequest)
+      expect(preview.includes(response)).toBe(!hideResponse)
+      expect(preview.split('(omited...)').length - 1).toBe(
+        Number(hideRequest) + Number(hideResponse)
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Copy to clipboard' }))
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith(preview))
+    }
+  )
 
-    const block = await screen.findByText((_, node) => {
-      if (node?.tagName !== 'PRE') return false
-      return node.textContent?.startsWith('>>>') ?? false
+  it.each([false, true])(
+    'keeps old object records readable (compressed=%s)',
+    async (compressed) => {
+      const legacy = {
+        request_headers: { Authorization: 'Bearer old-secret' },
+        upstream_body: 'old response',
+      }
+      const encoded = compressed ? compress(JSON.stringify(legacy)) : legacy
+      renderDialog(makeLog({ admin_info: { anomaly: encoded } }))
+      expect((await captureBlock()).textContent).toBe(JSON.stringify(legacy))
+    }
+  )
+
+  it.each([ROLE.ADMIN, ROLE.USER])(
+    'does not fetch or expose captures for role %s',
+    (role) => {
+      useAuthStore.getState().auth.setUser({ id: 2, username: 'viewer', role })
+      const get = vi.spyOn(api, 'get')
+      renderDialog(makeLog({ admin_info: { anomaly: compress(raw) } }))
+      expect(screen.queryByText(/upstream-secret/)).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Download' })).toBeNull()
+      expect(get).not.toHaveBeenCalled()
+    }
+  )
+
+  it('reuses cached decoded details on reopen and refreshes after capture clearing', async () => {
+    const get = vi.spyOn(api, 'get').mockResolvedValue({
+      data: { success: true, data: { anomaly: compress(raw) } },
     })
-    expect(block.textContent).toContain(
-      'POST https://up.example.com/v1/chat/completions'
-    )
-    expect(block.textContent).toContain('<<< HTTP 502')
-    expect(block.textContent).toContain('bad gateway')
-    expect(api.get).toHaveBeenCalledWith('/api/exception/capture', {
+    const view = renderDialog(makeLog({ error_code: 'upstream_error' }))
+    expect((await captureBlock()).textContent).toBe(raw)
+    expect(get).toHaveBeenCalledWith('/api/exception/capture', {
       params: { id: 1, request_id: 'req-1', created_at: 1 },
     })
+    view.setOpen(false)
+    view.setOpen(true)
+    expect((await captureBlock()).textContent).toBe(raw)
+    expect(get).toHaveBeenCalledTimes(1)
+    get.mockResolvedValue({ data: { success: true, data: { anomaly: '' } } })
+    await view.client.invalidateQueries({ queryKey: ['exception-capture'] })
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Download' })).toBeNull()
+    )
+    expect(get).toHaveBeenCalledTimes(2)
   })
 
-  it('omits the status line and body when the upstream status is unknown', () => {
-    renderDialog(
-      makeLog({
-        error_code: 'cyber_policy',
-        admin_info: {
-          anomaly: {
-            request_method: 'POST',
-            request_url: 'https://api.example.com/v1/responses',
-            upstream_body: '{"type":"response.failed"}',
-          },
-        },
-      })
-    )
-
-    const block = screen.getByText((_, node) => {
-      if (node?.tagName !== 'PRE') return false
-      return node.textContent?.startsWith('>>>') ?? false
+  it('does not reuse another root account capture cache', async () => {
+    const get = vi.spyOn(api, 'get').mockResolvedValue({
+      data: { success: true, data: { anomaly: compress(raw) } },
     })
-    expect(block.textContent).toContain('<<<')
-    expect(block.textContent).not.toContain('<<< HTTP')
-    expect(block.textContent).toContain('{"type":"response.failed"}')
+    const view = renderDialog(makeLog({}))
+    await captureBlock()
+    view.unmount()
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 3, username: 'other-root', role: ROLE.SUPER_ADMIN })
+    get.mockResolvedValue({
+      data: {
+        success: true,
+        data: { anomaly: compress('other account content') },
+      },
+    })
+    renderDialog(makeLog({}), view.client)
+    expect((await captureBlock()).textContent).toBe('other account content')
+    expect(get).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows a decoding failure instead of an empty capture', async () => {
+    renderDialog(makeLog({ admin_info: { anomaly: 'gz:broken' } }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Request failed')
+    expect(screen.queryByRole('button', { name: 'Download' })).toBeNull()
   })
 })

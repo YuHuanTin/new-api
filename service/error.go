@@ -95,7 +95,6 @@ func RelayErrorHandler(c *gin.Context, resp *http.Response, showBodyWhenFail boo
 		return
 	}
 	CloseResponseBodyGracefully(resp)
-	RecordUpstreamResponse(c, resp, responseBody)
 	var errResponse dto.GeneralErrorResponse
 	responseBodyText := string(responseBody)
 	responseBodyPreview := common.LocalLogPreview(responseBodyText)

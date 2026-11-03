@@ -4,19 +4,130 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
+
+func TestCaptureRoutesRequireRootSession(t *testing.T) {
+	previousDB, previousLogDB := model.DB, model.LOG_DB
+	previousMain, previousLog := common.MainDatabaseType(), common.LogDatabaseType()
+	previousRedis, previousRateLimit := common.RedisEnabled, common.GlobalApiRateLimitEnable
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "capture-auth.sqlite")), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.UserAccessToken{}, &model.Log{}, &model.AuditLog{}))
+	require.NoError(t, i18n.Init())
+	model.DB, model.LOG_DB = db, db
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	common.RedisEnabled, common.GlobalApiRateLimitEnable = false, false
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB = previousDB, previousLogDB
+		common.SetDatabaseTypes(previousMain, previousLog)
+		common.RedisEnabled, common.GlobalApiRateLimitEnable = previousRedis, previousRateLimit
+		sqlDB, closeErr := db.DB()
+		if assert.NoError(t, closeErr) {
+			assert.NoError(t, sqlDB.Close())
+		}
+	})
+	compressed := common.CompressText("upstream-secret: private response")
+	other := model.NewLogOther()
+	other.SetAdmin("anomaly", compressed)
+	log := &model.Log{Other: other.JSONString()}
+	require.NoError(t, db.Create(log).Error)
+	engine := newAccessTokenScopeTestEngine(t)
+	roles := []struct {
+		name string
+		role int
+	}{
+		{"root", common.RoleRootUser},
+		{"root_pat", common.RoleRootUser},
+		{"admin", common.RoleAdminUser},
+		{"user", common.RoleCommonUser},
+		{"anonymous", 0},
+	}
+	routes := []struct {
+		method     string
+		path       string
+		rootStatus int
+	}{
+		{http.MethodGet, "/api/exception/capture?id=" + strconv.Itoa(log.Id), http.StatusOK},
+		{http.MethodGet, "/api/exception/capture_size", http.StatusOK},
+		{http.MethodGet, "/api/exception/capture_setting", http.StatusOK},
+		{http.MethodPatch, "/api/exception/capture_setting", http.StatusBadRequest},
+		{http.MethodPost, "/api/exception/clear_capture", http.StatusBadRequest},
+	}
+	for _, role := range roles {
+		t.Run(role.name, func(t *testing.T) {
+			var credential string
+			if role.role != 0 {
+				user := &model.User{Username: "capture-" + role.name, Password: "placeholder", Role: role.role, Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1, AffCode: role.name}
+				require.NoError(t, db.Create(user).Error)
+				sid := "capture-route-" + role.name
+				now := time.Now().Unix()
+				require.NoError(t, model.CreateUserSession(&model.UserSession{SID: sid, UserID: user.Id, Version: 1, UserAuthVersion: 1, Status: model.UserSessionStatusActive, RefreshHash: "refresh-" + sid, LoginMethod: "password", LastActiveAt: now, ExpiresAt: now + 3600}))
+				credential, _, err = service.IssueAccessToken(service.AuthIdentity{UserID: user.Id, SessionID: sid, UserAuthVersion: 1, SessionVersion: 1})
+				require.NoError(t, err)
+				if role.name == "root_pat" {
+					suffix, err := common.GenerateRandomCharsKey(43)
+					require.NoError(t, err)
+					credential = model.AccessTokenPrefix + suffix
+					token := &model.UserAccessToken{Name: "capture-test", TokenHash: model.AccessTokenFingerprint(credential), TokenHint: model.AccessTokenHint(credential), ExpiresAt: now + 3600}
+					require.NoError(t, token.SetScopes([]string{"log:read"}))
+					require.NoError(t, model.CreateUserAccessToken(user.Id, token, service.AccessTokenMaxPerUser))
+				}
+			}
+			for _, route := range routes {
+				t.Run(route.method+route.path, func(t *testing.T) {
+					// 无效请求体让 root 到达参数校验，避免修改设置或清理数据。
+					request := httptest.NewRequest(route.method, route.path, strings.NewReader("{"))
+					request.Header.Set("Content-Type", "application/json")
+					if credential != "" {
+						request.Header.Set("Authorization", "Bearer "+credential)
+					}
+					response := httptest.NewRecorder()
+					engine.ServeHTTP(response, request)
+					want := http.StatusForbidden
+					if role.name == "root" {
+						want = route.rootStatus
+					} else if role.role == 0 {
+						want = http.StatusUnauthorized
+					}
+					assert.Equal(t, want, response.Code, response.Body.String())
+					assert.NotContains(t, response.Body.String(), "upstream-secret")
+					assert.NotContains(t, response.Body.String(), "private response")
+					if role.name == "root" && strings.HasPrefix(route.path, "/api/exception/capture?") {
+						var result struct {
+							Data struct {
+								Anomaly string `json:"anomaly"`
+							} `json:"data"`
+						}
+						require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+						assert.Equal(t, compressed, result.Data.Anomaly, "抓包接口应原样返回压缩值")
+						assert.Empty(t, response.Header().Get("Cache-Control"))
+					} else if role.name != "root" {
+						assert.NotContains(t, response.Body.String(), compressed)
+					}
+				})
+			}
+		})
+	}
+}
 
 // accessTokenExemptRoutes are /api routes that never reach dashboard
 // authentication, so a personal access token has no rule to satisfy there.
