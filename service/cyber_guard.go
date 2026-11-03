@@ -71,7 +71,7 @@ func (g *cyberGuard) reset(userId int) {
 }
 
 // RecordCyberPolicyViolation 统计一次 cyber_policy 拒绝。只有开启了该渠道的
-// cyber 策略管控才计数；窗口内次数超过阈值时禁用用户账号，并给用户发一封邮件，
+// cyber 策略管控才计数；窗口内次数达到阈值时禁用用户账号，并给用户发一封邮件，
 // 说明被清退的事实和联系管理员的方式
 func RecordCyberPolicyViolation(relayInfo *relaycommon.RelayInfo) {
 	if relayInfo == nil || relayInfo.UserId <= 0 {
@@ -92,8 +92,8 @@ func RecordCyberPolicyViolation(relayInfo *relaycommon.RelayInfo) {
 	count := cyberGuardState.record(relayInfo.UserId, time.Now().Unix(), int64(window.Seconds()))
 	common.SysLog(common.LogText("cyber_policy rejection recorded for user %d: %d/%d within %d minutes",
 		relayInfo.UserId, count, threshold, windowMinutes))
-	// threshold 是窗口内允许的次数，超过（第 threshold+1 次）才处置
-	if count <= threshold || !cyberSetting.AutoBan {
+	// threshold 是触发处置的次数，第 threshold 次命中就禁用。
+	if count < threshold || !cyberSetting.AutoBan {
 		return
 	}
 

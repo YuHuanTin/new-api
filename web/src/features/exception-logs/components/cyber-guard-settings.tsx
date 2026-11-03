@@ -171,7 +171,7 @@ export function CyberGuardSettings() {
             </div>
             <div className='flex items-center justify-between gap-4'>
               <Label htmlFor='cyber-guard-auto-ban' className='text-xs'>
-                {t('Disable the account when the threshold is exceeded')}
+                {t('Disable the account when the threshold is reached')}
               </Label>
               <Switch
                 id='cyber-guard-auto-ban'
@@ -203,7 +203,7 @@ export function CyberGuardSettings() {
               </div>
               <div className='space-y-1'>
                 <Label htmlFor='cyber-guard-threshold' className='text-xs'>
-                  {t('Rejections allowed in the window')}
+                  {t('Rejection threshold')}
                 </Label>
                 <Input
                   id='cyber-guard-threshold'

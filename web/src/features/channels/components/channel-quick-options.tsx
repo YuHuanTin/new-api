@@ -163,7 +163,7 @@ export function ChannelQuickOptions(props: ChannelQuickOptionsProps) {
     key: 'cyber-guard',
     label: t('Cyber Policy Control'),
     description: t(
-      'Count cyber policy rejections from this channel and disable the account once the threshold is exceeded'
+      'Count cyber policy rejections from this channel and disable the account once the threshold is reached'
     ),
     checked: cyberGuard === true,
     onCheckedChange: (value) =>

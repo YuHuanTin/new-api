@@ -73,26 +73,37 @@ func cyberPolicyError() *types.NewAPIError {
 	}, http.StatusBadRequest)
 }
 
-func TestRecordCyberPolicyViolationDisablesUserBeyondThreshold(t *testing.T) {
-	database := setupCyberGuardTest(t)
-	enableCyberGuard(t, 3, 10)
-	user := &model.User{Username: "cyber-user", Status: common.UserStatusEnabled, Role: common.RoleCommonUser, Quota: 123456, UsedQuota: 100}
-	require.NoError(t, database.Create(user).Error)
-	cyberGuardState.reset(user.Id)
-	t.Cleanup(func() { cyberGuardState.reset(user.Id) })
-
-	// threshold=3 表示窗口内允许 3 次，第 4 次才禁用
-	for attempt := 1; attempt <= 4; attempt++ {
-		RecordCyberPolicyViolation(newCyberRelayInfo(user.Id))
-		loaded, err := model.GetUserById(user.Id, true)
-		require.NoError(t, err)
-		if attempt <= 3 {
-			assert.Equal(t, common.UserStatusEnabled, loaded.Status, "达到阈值的次数仍在允许范围内")
-			continue
-		}
-		assert.Equal(t, common.UserStatusDisabled, loaded.Status, "超过阈值后账号应被禁用")
-		assert.Equal(t, 123456, loaded.Quota, "禁用不应清空余额")
-		assert.Equal(t, 100, loaded.UsedQuota, "禁用不应改写已用额度")
+func TestRecordCyberPolicyViolationDisablesUserAtThreshold(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		threshold int
+		autoBan   bool
+	}{
+		{"first_hit", 1, true},
+		{"third_hit", 3, true},
+		{"auto_ban_disabled", 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			database := setupCyberGuardTest(t)
+			enableCyberGuard(t, tc.threshold, 10)
+			operation_setting.GetCyberSetting().AutoBan = tc.autoBan
+			user := &model.User{Username: "cyber-user", Status: common.UserStatusEnabled, Role: common.RoleCommonUser, Quota: 123456, UsedQuota: 100}
+			require.NoError(t, database.Create(user).Error)
+			cyberGuardState.reset(user.Id)
+			t.Cleanup(func() { cyberGuardState.reset(user.Id) })
+			for attempt := 1; attempt <= tc.threshold+1; attempt++ {
+				RecordCyberPolicyViolation(newCyberRelayInfo(user.Id))
+				loaded, err := model.GetUserById(user.Id, true)
+				require.NoError(t, err)
+				want := common.UserStatusEnabled
+				if tc.autoBan && attempt >= tc.threshold {
+					want = common.UserStatusDisabled
+				}
+				assert.Equal(t, want, loaded.Status, "第 %d 次命中，阈值 %d", attempt, tc.threshold)
+				assert.Equal(t, 123456, loaded.Quota, "禁用不应清空余额")
+				assert.Equal(t, 100, loaded.UsedQuota, "禁用不应改写已用额度")
+			}
+		})
 	}
 }
 
@@ -120,8 +131,7 @@ func TestRecordCyberPolicyViolationKeepsRootAccount(t *testing.T) {
 	cyberGuardState.reset(root.Id)
 	t.Cleanup(func() { cyberGuardState.reset(root.Id) })
 
-	// 第 2 次超过阈值，才会走到「是否可清退」的判断
-	RecordCyberPolicyViolation(newCyberRelayInfo(root.Id))
+	// 阈值为 1 时首次命中就检查处置，root 仍然豁免。
 	RecordCyberPolicyViolation(newCyberRelayInfo(root.Id))
 
 	loaded, err := model.GetUserById(root.Id, true)
@@ -137,7 +147,6 @@ func TestRecordCyberPolicyViolationKeepsAdminAccount(t *testing.T) {
 	cyberGuardState.reset(admin.Id)
 	t.Cleanup(func() { cyberGuardState.reset(admin.Id) })
 
-	RecordCyberPolicyViolation(newCyberRelayInfo(admin.Id))
 	RecordCyberPolicyViolation(newCyberRelayInfo(admin.Id))
 
 	loaded, err := model.GetUserById(admin.Id, true)
@@ -173,13 +182,20 @@ func TestRecordCyberPolicyViolationCountsOnlyCyberPolicyErrors(t *testing.T) {
 	cyberGuardState.reset(user.Id)
 	t.Cleanup(func() { cyberGuardState.reset(user.Id) })
 
-	info := &relaycommon.RelayInfo{UserId: user.Id}
+	info := newCyberRelayInfo(user.Id)
+	info.CyberPolicyViolation = false
+	info.LastError = types.NewErrorWithStatusCode(io.ErrUnexpectedEOF, types.ErrorCodeBadResponse, http.StatusBadGateway)
+	RecordCyberPolicyViolation(info)
 	info.LastError = cyberPolicyError()
 	RecordCyberPolicyViolation(info)
 
 	loaded, err := model.GetUserById(user.Id, true)
 	require.NoError(t, err)
 	assert.Equal(t, common.UserStatusEnabled, loaded.Status, "一次拒绝还没到阈值")
+	RecordCyberPolicyViolation(info)
+	loaded, err = model.GetUserById(user.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.UserStatusDisabled, loaded.Status, "仅累计 cyber_policy 拒绝，第 2 次即禁用")
 }
 
 // 开关在渠道上：没给这个渠道打开时，即使拒绝次数远超阈值也不处置
