@@ -34,6 +34,10 @@ func logFilterFromQuery(c *gin.Context, admin bool) model.LogFilter {
 		filter.Username = c.Query("username")
 		filter.Channel, _ = strconv.Atoi(c.Query("channel"))
 		filter.FailedOnly = c.Query("failed_only") == "1"
+		if filter.FailedOnly && filter.Username != "" {
+			// 异常管理的用户筛选使用包含匹配；通用日志筛选仍保持原有的精确匹配语义。
+			filter.Username = "%" + filter.Username + "%"
+		}
 	}
 	return filter
 }

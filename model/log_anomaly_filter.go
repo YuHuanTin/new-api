@@ -41,7 +41,7 @@ func (f LogFilter) applyAnomalyFilter(tx *gorm.DB) *gorm.DB {
 	if f.FailedOnly {
 		// 失败日志行本身就是失败；消耗日志行看流状态里的 status
 		condition, pattern := logOtherLikeCondition(failedStreamStatusPattern)
-		tx = tx.Where("logs.type = ? OR "+condition, LogTypeError, pattern)
+		tx = tx.Where("(logs.type = ? OR "+condition+")", LogTypeError, pattern)
 	}
 	if f.ErrorCode != "" {
 		condition, pattern := logOtherLikeCondition(
