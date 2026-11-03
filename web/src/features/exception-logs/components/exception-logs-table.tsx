@@ -157,6 +157,7 @@ export function ExceptionLogsTable() {
   return (
     <>
       <DataTablePage
+        fixedHeight={false}
         table={table}
         columns={columns}
         isLoading={isLoading}

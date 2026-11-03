@@ -80,8 +80,8 @@ export function ExceptionLogsFilterBar(props: {
               onChange={({ start, end }) =>
                 setDraft((previous) => ({
                   ...previous,
-                  startTime: start,
-                  endTime: end,
+                  startTime: start ?? previous.startTime,
+                  endTime: end ?? previous.endTime,
                 }))
               }
             />

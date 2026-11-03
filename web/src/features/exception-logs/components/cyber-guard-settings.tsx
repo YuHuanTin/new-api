@@ -132,40 +132,42 @@ export function CyberGuardSettings() {
               <p className='text-xs font-medium'>
                 {t('Channels counting rejections')}
               </p>
-              {(channelsQuery.data ?? []).length === 0 ? (
-                <p className='text-muted-foreground text-xs'>
-                  {t('No channel has cyber policy counting enabled')}
-                </p>
-              ) : (
-                (channelsQuery.data ?? []).map((channel) => {
-                  const switchId = `cyber-guard-channel-${channel.id}`
-                  return (
-                    <div
-                      key={channel.id}
-                      className='flex items-center justify-between gap-3 rounded-md border px-2.5 py-1.5'
-                    >
-                      <Label htmlFor={switchId} className='min-w-0 text-xs'>
-                        <span className='truncate'>{channel.name}</span>
-                        <span className='text-muted-foreground'>
-                          {' '}
-                          #{channel.id}
-                        </span>
-                      </Label>
-                      <Switch
-                        id={switchId}
-                        checked={channelStates[channel.id] ?? true}
-                        disabled={toggleChannelMutation.isPending}
-                        onCheckedChange={(checked) =>
-                          toggleChannelMutation.mutate({
-                            id: channel.id,
-                            enabled: checked,
-                          })
-                        }
-                      />
-                    </div>
-                  )
-                })
-              )}
+              <div className='max-h-64 space-y-1.5 overflow-y-auto pe-1'>
+                {(channelsQuery.data ?? []).length === 0 ? (
+                  <p className='text-muted-foreground text-xs'>
+                    {t('No channel has cyber policy counting enabled')}
+                  </p>
+                ) : (
+                  (channelsQuery.data ?? []).map((channel) => {
+                    const switchId = `cyber-guard-channel-${channel.id}`
+                    return (
+                      <div
+                        key={channel.id}
+                        className='flex items-center justify-between gap-3 rounded-md border px-2.5 py-1.5'
+                      >
+                        <Label htmlFor={switchId} className='min-w-0 text-xs'>
+                          <span className='truncate'>{channel.name}</span>
+                          <span className='text-muted-foreground'>
+                            {' '}
+                            #{channel.id}
+                          </span>
+                        </Label>
+                        <Switch
+                          id={switchId}
+                          checked={channelStates[channel.id] ?? true}
+                          disabled={toggleChannelMutation.isPending}
+                          onCheckedChange={(checked) =>
+                            toggleChannelMutation.mutate({
+                              id: channel.id,
+                              enabled: checked,
+                            })
+                          }
+                        />
+                      </div>
+                    )
+                  })
+                )}
+              </div>
             </div>
             <div className='flex items-center justify-between gap-4'>
               <Label htmlFor='cyber-guard-auto-ban' className='text-xs'>

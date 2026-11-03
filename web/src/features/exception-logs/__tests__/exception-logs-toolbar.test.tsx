@@ -12,6 +12,7 @@ import { afterEach, expect, test, vi } from 'vitest'
 
 import { api } from '@/lib/api'
 
+import { ExceptionLogs } from '..'
 import { ExceptionLogsTable } from '../components/exception-logs-table'
 import type { ExceptionLog } from '../types'
 
@@ -35,7 +36,7 @@ const log: ExceptionLog = {
 
 type LogRequest = Record<string, unknown>
 
-async function renderTable() {
+async function renderTable(fullPage = false) {
   const requests: LogRequest[] = []
   vi.spyOn(api, 'get').mockImplementation(async (url, config) => {
     if (url === '/api/log/') {
@@ -47,7 +48,7 @@ async function renderTable() {
         },
       }
     }
-    return { data: { success: true, data: {} } }
+    return { data: { success: true, data: { options: {}, items: [] } } }
   })
 
   const root = createRootRoute()
@@ -55,7 +56,7 @@ async function renderTable() {
   const exceptionLogs = createRoute({
     getParentRoute: () => auth,
     path: '/exception-logs/',
-    component: ExceptionLogsTable,
+    component: fullPage ? ExceptionLogs : ExceptionLogsTable,
     validateSearch: (search: Record<string, unknown>) => search,
   })
   const router = createRouter({
@@ -78,6 +79,25 @@ async function renderTable() {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+})
+
+test('keeps settings and logs in the page scroll area when both panels expand', async () => {
+  const user = userEvent.setup()
+  await renderTable(true)
+
+  await user.click(screen.getByRole('button', { name: /Cyber Policy Control/ }))
+  await user.click(screen.getByRole('button', { name: /Capture Evidence/ }))
+
+  const scrollArea = screen.getByRole('main').querySelector('.overflow-auto')
+  expect(scrollArea).not.toBeNull()
+  expect(scrollArea).toContainElement(screen.getByLabelText('Retention days'))
+  expect(scrollArea).toContainElement(
+    screen.getByLabelText('Counting window (minutes)')
+  )
+  const tables = screen.getAllByRole('table')
+  expect(tables).toHaveLength(1)
+  expect(scrollArea).toContainElement(tables[0])
+  expect(scrollArea).toContainElement(screen.getByText('alice'))
 })
 
 test('puts the search button between auto refresh and the view options', async () => {

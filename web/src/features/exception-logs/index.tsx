@@ -10,19 +10,17 @@ export function ExceptionLogs() {
   const { t } = useTranslation()
 
   return (
-    <SectionPageLayout fixedContent>
+    <SectionPageLayout>
       <SectionPageLayout.Title>
         {t('Exception Management')}
       </SectionPageLayout.Title>
       <SectionPageLayout.Content>
-        <div className='flex h-full min-h-0 flex-col gap-4'>
+        <div className='space-y-4'>
           <div className='grid items-start gap-4 md:grid-cols-[7fr_3fr]'>
             <CyberGuardSettings />
             <CaptureSettings />
           </div>
-          <div className='min-h-0 flex-1'>
-            <ExceptionLogsTable />
-          </div>
+          <ExceptionLogsTable />
         </div>
       </SectionPageLayout.Content>
     </SectionPageLayout>
