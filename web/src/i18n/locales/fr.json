@@ -1320,8 +1320,6 @@
     "Comma-separated model names (leave empty to keep current)": "Noms de modèles séparés par des virgules (laissez vide pour conserver l'actuel)",
     "Comma-separated model names, e.g., gpt-4,gpt-3.5-turbo": "Noms de modèles séparés par des virgules, p. ex., gpt-4,gpt-3.5-turbo",
     "Command": "Commande",
-    "Comment": "Commentaire",
-    "Comment for {{group}}": "Commentaire pour {{group}}",
     "Common": "Commun",
     "Common Keys": "Clés courantes",
     "Common Logs": "Journaux courants",

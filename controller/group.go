@@ -2,9 +2,7 @@ package controller
 
 import (
 	"net/http"
-	"strings"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
@@ -13,8 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const groupCommentsOptionKey = "group_ratio_setting.group_comments"
-
 func GetGroups(c *gin.Context) {
 	groupRatios := ratio_setting.GetGroupRatioCopy()
 	groupNames := make([]string, 0)
@@ -22,25 +18,11 @@ func GetGroups(c *gin.Context) {
 		groupNames = append(groupNames, groupName)
 	}
 
-	common.OptionMapRWMutex.RLock()
-	rawGroupComments := common.OptionMap[groupCommentsOptionKey]
-	common.OptionMapRWMutex.RUnlock()
-	groupComments := make(map[string]string)
-	if strings.TrimSpace(rawGroupComments) != "" {
-		if err := common.UnmarshalJsonStr(rawGroupComments, &groupComments); err != nil {
-			groupComments = make(map[string]string)
-		}
-	}
-	if groupComments == nil {
-		groupComments = make(map[string]string)
-	}
-
 	c.JSON(http.StatusOK, gin.H{
-		"success":        true,
-		"message":        "",
-		"data":           groupNames,
-		"group_ratio":    groupRatios,
-		"group_comments": groupComments,
+		"success":     true,
+		"message":     "",
+		"data":        groupNames,
+		"group_ratio": groupRatios,
 	})
 }
 

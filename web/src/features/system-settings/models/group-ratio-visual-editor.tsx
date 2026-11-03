@@ -97,7 +97,6 @@ type GroupRatioVisualEditorProps = {
   defaultUseAutoGroupField: ReactNode
   groupRatio: string
   topupGroupRatio: string
-  groupComments?: string
   userUsableGroups: string
   groupGroupRatio: string
   autoGroups: string
@@ -113,7 +112,6 @@ type GroupPricingRow = {
   topupRatio: string
   selectable: boolean
   description: string
-  comment: string
 }
 
 type RegistryEntry = {
@@ -161,13 +159,11 @@ function parseNestedRatioMap(
 function buildGroupPricingRows(
   groupRatio: string,
   userUsableGroups: string,
-  topupGroupRatio: string,
-  groupComments: string
+  topupGroupRatio: string
 ): GroupPricingRow[] {
   const ratioMap = parseRatioMap(groupRatio)
   const usableMap = parseUsableMap(userUsableGroups)
   const topupMap = parseRatioMap(topupGroupRatio)
-  const commentsMap = parseUsableMap(groupComments)
   const names = new Set([
     ...Object.keys(ratioMap),
     ...Object.keys(usableMap),
@@ -181,7 +177,6 @@ function buildGroupPricingRows(
     topupRatio: Object.hasOwn(topupMap, name) ? String(topupMap[name]) : '',
     selectable: Object.hasOwn(usableMap, name),
     description: String(usableMap[name] ?? ''),
-    comment: String(commentsMap[name] ?? ''),
   }))
 }
 
@@ -189,7 +184,6 @@ function serializeGroupPricingRows(rows: GroupPricingRow[]) {
   const groupRatio: Record<string, number> = {}
   const userUsableGroups: Record<string, string> = {}
   const topupGroupRatio: Record<string, number> = {}
-  const groupComments: Record<string, string> = {}
 
   for (const row of rows) {
     const name = row.name.trim()
@@ -197,9 +191,6 @@ function serializeGroupPricingRows(rows: GroupPricingRow[]) {
     groupRatio[name] = normalizeRatio(row.ratio)
     if (row.selectable) {
       userUsableGroups[name] = row.description
-    }
-    if (row.comment.trim()) {
-      groupComments[name] = row.comment
     }
     const topup = row.topupRatio.trim()
     if (topup !== '' && Number.isFinite(Number(topup))) {
@@ -211,7 +202,6 @@ function serializeGroupPricingRows(rows: GroupPricingRow[]) {
     GroupRatio: JSON.stringify(groupRatio, null, 2),
     UserUsableGroups: JSON.stringify(userUsableGroups, null, 2),
     TopupGroupRatio: JSON.stringify(topupGroupRatio, null, 2),
-    GroupComments: JSON.stringify(groupComments, null, 2),
   }
 }
 
@@ -221,21 +211,18 @@ function groupPricingSignature(rows: GroupPricingRow[]): string {
     groupRatio: parseRatioMap(serialized.GroupRatio),
     userUsableGroups: parseUsableMap(serialized.UserUsableGroups),
     topupGroupRatio: parseRatioMap(serialized.TopupGroupRatio),
-    groupComments: parseUsableMap(serialized.GroupComments),
   })
 }
 
 function sourceGroupPricingSignature(
   groupRatio: string,
   userUsableGroups: string,
-  topupGroupRatio: string,
-  groupComments: string
+  topupGroupRatio: string
 ): string {
   return JSON.stringify({
     groupRatio: parseRatioMap(groupRatio),
     userUsableGroups: parseUsableMap(userUsableGroups),
     topupGroupRatio: parseRatioMap(topupGroupRatio),
-    groupComments: parseUsableMap(groupComments),
   })
 }
 
@@ -285,7 +272,6 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
   defaultUseAutoGroupField,
   groupRatio,
   topupGroupRatio,
-  groupComments = '{}',
   userUsableGroups,
   groupGroupRatio,
   autoGroups,
@@ -384,7 +370,6 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
           groupRatio={groupRatio}
           userUsableGroups={userUsableGroups}
           topupGroupRatio={topupGroupRatio}
-          groupComments={groupComments}
           onChange={onChange}
           onShowDetail={setDetailGroup}
         />
@@ -490,7 +475,6 @@ type GroupPricingTableProps = {
   groupRatio: string
   userUsableGroups: string
   topupGroupRatio: string
-  groupComments: string
   onChange: (field: string, value: string) => void
   onShowDetail: (name: string) => void
 }
@@ -499,27 +483,20 @@ function GroupPricingTable({
   groupRatio,
   userUsableGroups,
   topupGroupRatio,
-  groupComments,
   onChange,
   onShowDetail,
 }: GroupPricingTableProps) {
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
   const [rows, setRows] = useState<GroupPricingRow[]>(() =>
-    buildGroupPricingRows(
-      groupRatio,
-      userUsableGroups,
-      topupGroupRatio,
-      groupComments
-    )
+    buildGroupPricingRows(groupRatio, userUsableGroups, topupGroupRatio)
   )
 
   useEffect(() => {
     const incomingSignature = sourceGroupPricingSignature(
       groupRatio,
       userUsableGroups,
-      topupGroupRatio,
-      groupComments
+      topupGroupRatio
     )
     setRows((currentRows) => {
       if (groupPricingSignature(currentRows) === incomingSignature) {
@@ -528,11 +505,10 @@ function GroupPricingTable({
       return buildGroupPricingRows(
         groupRatio,
         userUsableGroups,
-        topupGroupRatio,
-        groupComments
+        topupGroupRatio
       )
     })
-  }, [groupRatio, userUsableGroups, topupGroupRatio, groupComments])
+  }, [groupRatio, userUsableGroups, topupGroupRatio])
 
   const emitRows = useCallback(
     (nextRows: GroupPricingRow[]) => {
@@ -541,7 +517,6 @@ function GroupPricingTable({
       onChange('GroupRatio', serialized.GroupRatio)
       onChange('UserUsableGroups', serialized.UserUsableGroups)
       onChange('TopupGroupRatio', serialized.TopupGroupRatio)
-      onChange('GroupComments', serialized.GroupComments)
     },
     [onChange]
   )
@@ -576,7 +551,6 @@ function GroupPricingTable({
         topupRatio: '',
         selectable: true,
         description: '',
-        comment: '',
       },
       ...rows,
     ])
@@ -764,22 +738,6 @@ function GroupPricingTable({
                       -
                     </span>
                   ),
-              },
-              {
-                id: 'comment',
-                header: t('Comment'),
-                className: 'min-w-56',
-                cell: (row: GroupPricingRow) => (
-                  <Input
-                    value={row.comment}
-                    aria-label={t('Comment for {{group}}', {
-                      group: row.name,
-                    })}
-                    onChange={(event) =>
-                      updateRow(row._id, 'comment', event.target.value)
-                    }
-                  />
-                ),
               },
               {
                 id: 'actions',

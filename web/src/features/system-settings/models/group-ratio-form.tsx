@@ -68,7 +68,6 @@ import {
 type GroupFormValues = {
   GroupRatio: string
   TopupGroupRatio: string
-  GroupComments?: string
   UserUsableGroups: string
   GroupGroupRatio: string
   AutoGroups: string
@@ -170,7 +169,6 @@ export const GroupRatioForm = memo(function GroupRatioForm({
             onSectionChange={setSection}
             groupRatio={values.GroupRatio ?? ''}
             topupGroupRatio={values.TopupGroupRatio ?? ''}
-            groupComments={values.GroupComments ?? '{}'}
             userUsableGroups={values.UserUsableGroups ?? ''}
             groupGroupRatio={values.GroupGroupRatio ?? ''}
             autoGroups={values.AutoGroups ?? ''}

@@ -1320,8 +1320,6 @@
     "Comma-separated model names (leave empty to keep current)": "カンマ区切りのモデル名 (空欄のままにすると現在の設定を維持)",
     "Comma-separated model names, e.g., gpt-4,gpt-3.5-turbo": "カンマ区切りのモデル名、例: gpt-4,gpt-3.5-turbo",
     "Command": "コマンド",
-    "Comment": "コメント",
-    "Comment for {{group}}": "{{group}} のコメント",
     "Common": "共通",
     "Common Keys": "よく使うキー",
     "Common Logs": "一般的なログ",

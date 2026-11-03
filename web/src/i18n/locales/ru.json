@@ -1320,8 +1320,6 @@
     "Comma-separated model names (leave empty to keep current)": "Названия моделей, разделенные запятыми (оставьте пустым, чтобы сохранить текущие)",
     "Comma-separated model names, e.g., gpt-4,gpt-3.5-turbo": "Имена моделей, разделённые запятыми, например, gpt-4,gpt-3.5-turbo",
     "Command": "Команда",
-    "Comment": "Комментарий",
-    "Comment for {{group}}": "Комментарий для группы {{group}}",
     "Common": "Общие",
     "Common Keys": "Часто используемые ключи",
     "Common Logs": "Общие журналы",

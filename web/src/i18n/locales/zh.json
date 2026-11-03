@@ -1320,8 +1320,6 @@
     "Comma-separated model names (leave empty to keep current)": "逗号分隔的模型名称（留空以保持当前设置）",
     "Comma-separated model names, e.g., gpt-4,gpt-3.5-turbo": "逗号分隔的模型名称，例如 gpt-4,gpt-3.5-turbo",
     "Command": "命令",
-    "Comment": "注释",
-    "Comment for {{group}}": "{{group}} 的注释",
     "Common": "通用",
     "Common Keys": "常用 Key",
     "Common Logs": "通用日志",

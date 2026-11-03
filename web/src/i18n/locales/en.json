@@ -1320,8 +1320,6 @@
     "Comma-separated model names (leave empty to keep current)": "Comma-separated model names (leave empty to keep current)",
     "Comma-separated model names, e.g., gpt-4,gpt-3.5-turbo": "Comma-separated model names, e.g., gpt-4,gpt-3.5-turbo",
     "Command": "Command",
-    "Comment": "Comment",
-    "Comment for {{group}}": "Comment for {{group}}",
     "Common": "Common",
     "Common Keys": "Common Keys",
     "Common Logs": "Common Logs",

@@ -80,7 +80,6 @@ export interface ApiResponse<T = unknown> {
 
 export interface GroupListResponse extends ApiResponse<string[]> {
   group_ratio?: Record<string, number>
-  group_comments?: Record<string, string>
 }
 
 export type UserSortBy =

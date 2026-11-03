@@ -624,14 +624,12 @@ export function useChannelsColumns(
   options: {
     enableSelection?: boolean
     groupRatios?: Record<string, number>
-    groupComments?: Record<string, string>
   } = {}
 ): ColumnDef<Channel>[] {
   const { t, i18n } = useTranslation()
   const { sensitiveVisible } = useChannels()
   const enableSelection = options.enableSelection ?? true
   const groupRatios = options.groupRatios
-  const groupComments = options.groupComments
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   // 巡检间隔来自请求策略设置；只用来算「下次重试还有多久」，读一次就缓存
   // 拿不到设置时不给倒计时，不影响列表本身
@@ -1165,32 +1163,6 @@ export function useChannelsColumns(
         enableSorting: false,
       },
 
-      {
-        id: 'group-comments',
-        header: t('Comment'),
-        meta: { mobileHidden: true },
-        cell: ({ row }) => {
-          const groups = parseGroupsList(row.original.group ?? '')
-          const comments = groups.flatMap((group) => {
-            const comment = groupComments?.[group]?.trim()
-            if (!comment) return []
-            return [groups.length > 1 ? `${group}: ${comment}` : comment]
-          })
-          if (comments.length === 0) {
-            return <span className='text-muted-foreground text-xs'>-</span>
-          }
-          return (
-            <TruncatedText
-              text={comments.join(' / ')}
-              maxWidth='max-w-[240px]'
-              className='-ml-1.5 text-xs'
-            />
-          )
-        },
-        size: 220,
-        enableSorting: false,
-      },
-
       // Tag column
       {
         accessorKey: 'tag',
@@ -1333,7 +1305,6 @@ export function useChannelsColumns(
     [
       autoTestMinutes,
       enableSelection,
-      groupComments,
       groupRatios,
       t,
       locale,

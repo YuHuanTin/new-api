@@ -381,7 +381,6 @@ export function ChannelsTable() {
   const baseColumns = useChannelsColumns({
     enableSelection: batchMode,
     groupRatios: groupsData?.group_ratio,
-    groupComments: groupsData?.group_comments,
   })
   const columns = useMemo<ColumnDef<Channel>[]>(
     () =>
