@@ -3,12 +3,15 @@ package service
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -217,12 +220,149 @@ func TestUpstreamCapturePreservesPartialReadAndClose(t *testing.T) {
 	assert.True(t, source.closed)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Set(anomalyCaptureKey, capture)
-	info := &relaycommon.RelayInfo{IsStream: true, ChannelMeta: &relaycommon.ChannelMeta{}}
+	info := &relaycommon.RelayInfo{IsStream: true, ChannelMeta: &relaycommon.ChannelMeta{}, StreamStatus: relaycommon.NewStreamStatus()}
+	info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
+	info.StreamStatus.MarkCompleted()
 	other := GenerateTextOtherInfo(c, info, 1, 1, 1, 0, 1, 0, 1)
 	require.NotNil(t, info.StreamStatus)
 	assert.True(t, info.StreamStatus.Failed(), "旧适配器未上报的读取失败也必须标为异常")
 	assert.Contains(t, restoredAnomaly(t, other.JSONString()), "partial")
 	assert.NotContains(t, other.JSONString(), "upstream disconnected", "读取错误原文不能进入公开日志")
+}
+
+// 模拟主动 Close 唤醒阻塞读取，使用通道固定先后关系，避免依赖时序或错误字符串。
+type closingCaptureBody struct {
+	reading   chan struct{}
+	closed    chan struct{}
+	closeOnce sync.Once
+	readErr   error
+	closeErr  error
+}
+
+func (b *closingCaptureBody) Read(p []byte) (int, error) {
+	close(b.reading)
+	<-b.closed
+	return copy(p, "partial"), b.readErr
+}
+
+func (b *closingCaptureBody) Close() error {
+	b.closeOnce.Do(func() { close(b.closed) })
+	return b.closeErr
+}
+
+func TestUpstreamCaptureClosePreservesCompletedStream(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		readErr  error
+		closeErr error
+	}{
+		{name: "closed pipe", readErr: io.ErrClosedPipe},
+		{name: "closed connection", readErr: net.ErrClosed},
+		{name: "cancelled read", readErr: context.Canceled},
+		{name: "EOF", readErr: io.EOF},
+		{name: "close failure", readErr: io.ErrClosedPipe, closeErr: errors.New("close failed")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := &closingCaptureBody{reading: make(chan struct{}), closed: make(chan struct{}), readErr: tc.readErr, closeErr: tc.closeErr}
+			t.Cleanup(func() { _ = source.Close() })
+			capture := &upstreamCapture{}
+			body := &upstreamCaptureBody{ReadCloser: source, capture: capture, response: true}
+			readDone := make(chan error, 1)
+			go func() {
+				_, err := body.Read(make([]byte, 20))
+				readDone <- err
+			}()
+			<-source.reading
+			assert.ErrorIs(t, body.Close(), tc.closeErr, "保持底层 Close 的返回值")
+			assert.ErrorIs(t, <-readDone, tc.readErr, "保持底层 Read 的返回值")
+			assert.Equal(t, "partial", string(capture.responseBody), "关闭期间读到的字节仍应保留")
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Set(anomalyCaptureKey, capture)
+			info := &relaycommon.RelayInfo{IsStream: true, ChannelMeta: &relaycommon.ChannelMeta{}, StreamStatus: relaycommon.NewStreamStatus()}
+			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
+			info.StreamStatus.MarkCompleted()
+			other := GenerateTextOtherInfo(c, info, 1, 1, 1, 0, 1, 0, 1)
+			status, ok := other.Snapshot()["stream_status"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, "ok", status["status"])
+			assert.Equal(t, "completed", status["response_status"])
+			assert.NotContains(t, other.JSONString(), "anomaly", "正常关闭不应保存异常抓包")
+		})
+	}
+}
+
+func TestUpstreamCaptureRequestClosePreservesResponseFailure(t *testing.T) {
+	capture := &upstreamCapture{}
+	request := &upstreamCaptureBody{ReadCloser: io.NopCloser(strings.NewReader("request")), capture: capture}
+	require.NoError(t, request.Close())
+	response := &upstreamCaptureBody{ReadCloser: &failingCaptureBody{}, capture: capture, response: true}
+	_, err := response.Read(make([]byte, 20))
+	require.EqualError(t, err, "upstream disconnected")
+	require.NoError(t, response.Close())
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Set(anomalyCaptureKey, capture)
+	assert.True(t, upstreamCaptureReadFailed(c), "请求正文关闭不能掩盖响应读取失败，响应关闭也不能清除既有失败")
+}
+
+func TestUpstreamCaptureClosePreservesFailedStream(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		endReason relaycommon.StreamEndReason
+		endErr    error
+		code      string
+		protocol  bool
+		softError bool
+	}{
+		{name: "client disconnect", endReason: relaycommon.StreamEndReasonClientGone, endErr: context.Canceled, code: "client_gone"},
+		{name: "idle timeout", endReason: relaycommon.StreamEndReasonTimeout, code: "stream_timeout"},
+		{name: "upstream reset", endReason: relaycommon.StreamEndReasonScannerErr, endErr: io.ErrUnexpectedEOF, code: "stream_aborted"},
+		{name: "downstream write failure", endReason: relaycommon.StreamEndReasonHandlerStop, endErr: io.ErrClosedPipe},
+		{name: "ping failure", endReason: relaycommon.StreamEndReasonPingFail, endErr: net.ErrClosed, code: "stream_ping_failed"},
+		{name: "panic", endReason: relaycommon.StreamEndReasonPanic, endErr: errors.New("mock panic"), code: "stream_panic"},
+		{name: "protocol failure then done", endReason: relaycommon.StreamEndReasonDone, protocol: true, code: "mock_rejected"},
+		{name: "parse failure then done", endReason: relaycommon.StreamEndReasonDone, softError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// 相同的主动 Close，即使底层读取最终返回 EOF，也不能把异常状态改成正常。
+			source := &closingCaptureBody{reading: make(chan struct{}), closed: make(chan struct{}), readErr: io.EOF}
+			t.Cleanup(func() { _ = source.Close() })
+			capture := &upstreamCapture{}
+			body := &upstreamCaptureBody{ReadCloser: source, capture: capture, response: true}
+			readDone := make(chan error, 1)
+			go func() {
+				_, err := body.Read(make([]byte, 20))
+				readDone <- err
+			}()
+			<-source.reading
+			require.NoError(t, body.Close())
+			require.ErrorIs(t, <-readDone, io.EOF)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Set(anomalyCaptureKey, capture)
+			info := &relaycommon.RelayInfo{IsStream: true, ChannelMeta: &relaycommon.ChannelMeta{}, StreamStatus: relaycommon.NewStreamStatus()}
+			info.StreamStatus.SetEndReason(tc.endReason, tc.endErr)
+			if tc.protocol {
+				info.StreamStatus.MarkFailed(tc.code, "server_error", 500)
+			} else {
+				info.StreamStatus.MarkCompleted()
+			}
+			if tc.softError {
+				info.StreamStatus.RecordError("mock parse failure")
+			}
+			if tc.endReason == relaycommon.StreamEndReasonHandlerStop {
+				// 实际 StreamResult.Stop 会同时记录写入错误和 handler_stop。
+				info.StreamStatus.RecordError(tc.endErr.Error())
+			}
+			other := GenerateTextOtherInfo(c, info, 1, 1, 1, 0, 1, 0, 1)
+			status, ok := other.Snapshot()["stream_status"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, "error", status["status"])
+			assert.Equal(t, string(tc.endReason), status["end_reason"])
+			if tc.code != "" {
+				assert.Equal(t, tc.code, status["error_code"])
+			}
+			assert.Contains(t, restoredAnomaly(t, other.JSONString()), "partial", "异常请求仍须保留抓包")
+		})
+	}
 }
 
 func TestUpstreamCapturePreservesBinaryHeadersAndTrailers(t *testing.T) {

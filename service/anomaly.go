@@ -175,6 +175,15 @@ type upstreamCaptureBody struct {
 	capture  *upstreamCapture
 	response bool
 	trailers http.Header
+	closing  bool // 由 capture.mu 保护，仅记录当前正文的主动关闭状态。
+}
+
+func (b *upstreamCaptureBody) Close() error {
+	// 先标记再关闭底层正文，避免关闭唤醒的读取错误被当成上游故障；已记录的失败保留。
+	b.capture.mu.Lock()
+	b.closing = true
+	b.capture.mu.Unlock()
+	return b.ReadCloser.Close()
 }
 
 func (b *upstreamCaptureBody) Read(p []byte) (int, error) {
@@ -184,7 +193,7 @@ func (b *upstreamCaptureBody) Read(p []byte) (int, error) {
 	}
 	b.capture.mu.Lock()
 	defer b.capture.mu.Unlock()
-	if b.response && err != nil && err != io.EOF {
+	if b.response && !b.closing && err != nil && err != io.EOF {
 		b.capture.responseReadFailed = true
 	}
 	if err == io.EOF && len(b.trailers) > 0 {
