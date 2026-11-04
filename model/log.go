@@ -386,11 +386,13 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		logger.LogError(c, common.LogText("failed to record log: %s", err.Error()))
 	}
 	if common.DataExportEnabled {
+		// 与日志页共用完整总 token 口径，包含单独报告的缓存读写
+		var tokenStat LogTokenStat
+		tokenStat.Add(log)
 		var cacheReadTokens, cacheCreationTokens int
 		if other != nil {
 			cacheReadTokens, _ = other.public["cache_tokens"].(int)
-			// The settlement path already normalizes the cache creation total.
-			// Do not add the 5m/1h breakdown again or infer tokens from prices.
+			// 结算路径已归一化缓存写入总量，不再叠加 5m/1h 分档，也不从价格反推 token
 			cacheCreationTokens, _ = other.public["cache_write_tokens"].(int)
 		}
 		LogQuotaData(QuotaDataLogParams{
@@ -399,7 +401,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 			ModelName:           params.ModelName,
 			Quota:               params.Quota,
 			CreatedAt:           createdAt,
-			TokenUsed:           params.PromptTokens + params.CompletionTokens,
+			TokenUsed:           common.QuotaFromFloat(float64(tokenStat.TotalTokens)),
 			CacheReadTokens:     int64(cacheReadTokens),
 			CacheCreationTokens: int64(cacheCreationTokens),
 			UseGroup:            params.Group,

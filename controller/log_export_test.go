@@ -248,6 +248,9 @@ func TestAcquireLogExportLock(t *testing.T) {
 func TestLogTokenStatEndpointsScopeAndRange(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, _ := newAuditTestDatabase(t, "sqlite", "")
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
 	useLogExportDatabases(t, db, db, common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
 	require.NoError(t, db.AutoMigrate(&model.Log{}))
 	now := common.GetTimestamp()
