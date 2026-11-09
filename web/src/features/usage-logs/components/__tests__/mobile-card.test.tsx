@@ -221,13 +221,13 @@ it('respects hidden columns and omits admin fields in the self view', () => {
 it('keeps input, output and cache quantities readable without empty metric cells', () => {
   renderLogs()
   expect(screen.getByText('Input')).toBeVisible()
-  expect(screen.getByText('Input').lastElementChild).toHaveTextContent('900')
+  expect(screen.getByText('Input').lastElementChild).toHaveTextContent('700')
   expect(screen.getByText('Output')).toBeVisible()
   expect(screen.getByText(/300/)).toBeVisible()
   expect(screen.getByText('Cache W 200')).toBeVisible()
 })
 
-it('shows Claude input tokens as reported without subtracting cache reads', () => {
+it('shows Claude input tokens from the normalized total', () => {
   renderLogs({
     logs: [
       {
@@ -238,6 +238,7 @@ it('shows Claude input tokens as reported without subtracting cache reads', () =
           claude: true,
           cache_tokens: 46137,
           cache_creation_tokens: 3736,
+          input_tokens_total: 49875,
         }),
       },
     ],

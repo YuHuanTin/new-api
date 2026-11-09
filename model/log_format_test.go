@@ -35,6 +35,47 @@ func TestFormatUserLogsStripsQuotaSaturation(t *testing.T) {
 	require.Contains(t, parsed, "model_price")
 }
 
+// TestLogFormatDerivesNormalizedInputTotal 验证派生只读已有字段、不写库，
+// 且剥离 admin_info 后普通用户仍能拿到总输入。
+func TestLogFormatDerivesNormalizedInputTotal(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		other  string
+		prompt int
+		want   float64
+	}{
+		{
+			name:   "openai billing path under a claude request format",
+			other:  `{"claude":true,"cache_tokens":178304,"admin_info":{"usage_billing_path":"billing-usage-openai"}}`,
+			prompt: 179788,
+			want:   179788,
+		},
+		{
+			name:   "anthropic billing path adds cache reads and writes",
+			other:  `{"cache_tokens":46137,"cache_creation_tokens":3736,"admin_info":{"usage_billing_path":"billing-usage-anthropic"}}`,
+			prompt: 2,
+			want:   49875,
+		},
+		{
+			name:   "tiered billing length wins over the request-format heuristic",
+			other:  `{"claude":true,"cache_tokens":178304,"billing_tokens":{"len":179788,"p":1484}}`,
+			prompt: 179788,
+			want:   179788,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logs := []*Log{{PromptTokens: tc.prompt, Other: tc.other}}
+
+			formatUserLogs(logs, 0)
+
+			parsed, err := common.StrToMap(logs[0].Other)
+			require.NoError(t, err)
+			assert.NotContains(t, parsed, "admin_info")
+			assert.Equal(t, tc.want, parsed["input_tokens_total"])
+		})
+	}
+}
+
 func TestTaskPluginLogVisibilityIsRoleSeparated(t *testing.T) {
 	other := common.MapToJsonStr(map[string]any{
 		"model_price": 1.25,

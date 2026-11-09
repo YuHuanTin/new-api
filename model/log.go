@@ -114,7 +114,7 @@ func assignDisplayLogIds(logs []*Log, startIdx int) {
 func formatUserLogs(logs []*Log, startIdx int) {
 	for i := range logs {
 		logs[i].ChannelName = ""
-		logs[i].Other = formatLogOtherJSON(logs[i].Other, logOtherVisibilityUser)
+		logs[i].Other = formatLogOtherJSON(logs[i].Other, logs[i].PromptTokens, logOtherVisibilityUser)
 	}
 	assignDisplayLogIds(logs, startIdx)
 }
@@ -123,7 +123,7 @@ func formatUserLogs(logs []*Log, startIdx int) {
 // admin_info. Root callers must not pass their results through this formatter.
 func FormatAdminLogs(logs []*Log) {
 	for i := range logs {
-		logs[i].Other = formatLogOtherJSON(logs[i].Other, logOtherVisibilityAdmin)
+		logs[i].Other = formatLogOtherJSON(logs[i].Other, logs[i].PromptTokens, logOtherVisibilityAdmin)
 	}
 }
 
@@ -131,7 +131,7 @@ func FormatAdminLogs(logs []*Log) {
 // without removing root-only diagnostics.
 func FormatRootLogs(logs []*Log) {
 	for i := range logs {
-		logs[i].Other = formatLogOtherJSON(logs[i].Other, logOtherVisibilityRoot)
+		logs[i].Other = formatLogOtherJSON(logs[i].Other, logs[i].PromptTokens, logOtherVisibilityRoot)
 	}
 }
 
@@ -649,7 +649,7 @@ func StreamAllLogs(ctx context.Context, filter LogFilter, role int, fn func(*Log
 		if stripped, changed := stripLogAnomalyCapture(log.Other); changed {
 			log.Other = stripped
 		}
-		log.Other = formatLogOtherJSON(log.Other, visibility)
+		log.Other = formatLogOtherJSON(log.Other, log.PromptTokens, visibility)
 		return fn(log)
 	})
 }
@@ -666,7 +666,7 @@ func StreamUserLogs(ctx context.Context, userId int, filter LogFilter, fn func(*
 		count++
 		log.Id = count
 		log.ChannelName = ""
-		log.Other = formatLogOtherJSON(log.Other, logOtherVisibilityUser)
+		log.Other = formatLogOtherJSON(log.Other, log.PromptTokens, logOtherVisibilityUser)
 		return fn(log)
 	})
 }

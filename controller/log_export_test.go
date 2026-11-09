@@ -256,7 +256,7 @@ func TestLogTokenStatEndpointsScopeAndRange(t *testing.T) {
 	now := common.GetTimestamp()
 	require.NoError(t, db.Create(&[]model.Log{
 		{UserId: 1, CreatedAt: now - 60, Type: model.LogTypeConsume, PromptTokens: 100, CompletionTokens: 50, Other: `{"cache_tokens":25}`},
-		{UserId: 2, CreatedAt: now - 60, Type: model.LogTypeConsume, PromptTokens: 300, CompletionTokens: 100, Other: `{"claude":true,"cache_tokens":100}`},
+		{UserId: 2, CreatedAt: now - 60, Type: model.LogTypeConsume, PromptTokens: 300, CompletionTokens: 100, Other: `{"cache_tokens":100,"admin_info":{"usage_billing_path":"billing-usage-anthropic"}}`},
 		{UserId: 1, CreatedAt: now - 400*24*3600, Type: model.LogTypeConsume, PromptTokens: 9000, CompletionTokens: 1},
 	}).Error)
 	query := fmt.Sprintf("start_timestamp=%d&end_timestamp=%d", now-2*24*3600, now+60)

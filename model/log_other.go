@@ -18,6 +18,12 @@ const (
 	logOtherAnomalyKey = "anomaly"
 	// logOtherAnomalyCapturedKey 标记这条日志有抓包，列表剥离现场后保留
 	logOtherAnomalyCapturedKey = "anomaly_captured"
+	// logOtherInputTokensTotalKey 是含缓存读写的归一化总输入，供日志页计算缓存率
+	logOtherInputTokensTotalKey = "input_tokens_total"
+	// logOtherBillingTokensKey 是动态计费时实际参与表达式计算的 token 用量
+	logOtherBillingTokensKey = "billing_tokens"
+	// logOtherUsageBillingPathKey 位于 admin_info，记录结算用的用量语义
+	logOtherUsageBillingPathKey = "usage_billing_path"
 )
 
 // legacySensitiveLogOtherKeys are historical top-level fields that must never
@@ -230,10 +236,71 @@ func normalizeLegacyRejectReason(values map[string]json.RawMessage) bool {
 	return true
 }
 
+// deriveInputTokensTotal 返回前为日志派生含缓存读写的总输入：只读已有字段，
+// 不写库；在剥离 admin_info 前派生，普通用户也能拿到。
+func deriveInputTokensTotal(values map[string]json.RawMessage, promptTokens int) bool {
+	if _, exists := values[logOtherInputTokensTotalKey]; exists {
+		return false
+	}
+
+	// 动态计费日志已保存参与结算的总上下文长度
+	if raw, exists := values[logOtherBillingTokensKey]; exists {
+		var billingTokens map[string]float64
+		if err := common.Unmarshal(raw, &billingTokens); err == nil && billingTokens["len"] > 0 {
+			return setLogOtherInteger(values, logOtherInputTokensTotalKey, int64(billingTokens["len"]))
+		}
+	}
+	if promptTokens <= 0 {
+		return false
+	}
+
+	var adminInfo map[string]json.RawMessage
+	_ = common.Unmarshal(values[logOtherAdminInfoKey], &adminInfo)
+	var billingPath string
+	_ = common.Unmarshal(adminInfo[logOtherUsageBillingPathKey], &billingPath)
+	switch {
+	case strings.HasPrefix(billingPath, "billing-usage-openai"),
+		strings.HasPrefix(billingPath, "billing-usage-gemini"):
+		// prompt_tokens 已含缓存读
+		return setLogOtherInteger(values, logOtherInputTokensTotalKey, int64(promptTokens))
+	case strings.HasPrefix(billingPath, "billing-usage-anthropic"):
+		// prompt_tokens 不含缓存读写
+		cacheRead := max(logOtherPositiveNumber(values, "cache_tokens"), logOtherPositiveNumber(values, "image_cache_tokens"))
+		cacheWrite := logOtherPositiveNumber(values, "cache_creation_tokens_5m") + logOtherPositiveNumber(values, "cache_creation_tokens_1h")
+		if cacheWrite == 0 {
+			cacheWrite = logOtherPositiveNumber(values, "cache_creation_tokens")
+		}
+		return setLogOtherInteger(values, logOtherInputTokensTotalKey, int64(promptTokens)+cacheRead+cacheWrite)
+	default:
+		return false
+	}
+}
+
+func logOtherPositiveNumber(values map[string]json.RawMessage, key string) int64 {
+	raw, exists := values[key]
+	if !exists {
+		return 0
+	}
+	var value float64
+	if err := common.Unmarshal(raw, &value); err != nil || value <= 0 {
+		return 0
+	}
+	return int64(value)
+}
+
+func setLogOtherInteger(values map[string]json.RawMessage, key string, value int64) bool {
+	encoded, err := common.Marshal(value)
+	if err != nil {
+		return false
+	}
+	values[key] = encoded
+	return true
+}
+
 // formatLogOtherJSON applies the role projection while keeping untouched JSON
 // values as RawMessage. This preserves integers larger than JavaScript's safe
 // range instead of round-tripping them through float64.
-func formatLogOtherJSON(value string, visibility logOtherVisibility) string {
+func formatLogOtherJSON(value string, promptTokens int, visibility logOtherVisibility) string {
 	if value == "" {
 		return ""
 	}
@@ -252,7 +319,7 @@ func formatLogOtherJSON(value string, visibility logOtherVisibility) string {
 		return "{}"
 	}
 
-	changed := false
+	changed := deriveInputTokensTotal(values, promptTokens)
 	if visibility == logOtherVisibilityUser {
 		for _, key := range []string{logOtherAdminInfoKey, logOtherRootInfoKey, logOtherAuditInfoKey} {
 			if _, exists := values[key]; exists {
@@ -267,7 +334,9 @@ func formatLogOtherJSON(value string, visibility logOtherVisibility) string {
 			}
 		}
 	} else {
-		changed = normalizeLegacyRejectReason(values)
+		if normalizeLegacyRejectReason(values) {
+			changed = true
+		}
 		if visibility == logOtherVisibilityAdmin {
 			// 抓包标记也只向 root 展示，管理员列表不透露是否保存了抓包。
 			var adminInfo map[string]json.RawMessage

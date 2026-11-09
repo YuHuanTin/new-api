@@ -25,8 +25,8 @@ func TestLogTokenStatAddMatchesInputAccounting(t *testing.T) {
 		wantRate   float64
 	}{
 		{
-			name:       "claude adds cache reads and writes to input",
-			log:        Log{PromptTokens: 2, CompletionTokens: 9255, Other: `{"claude":true,"cache_tokens":46137,"cache_creation_tokens":3736}`},
+			name:       "anthropic billing adds cache reads and writes to input",
+			log:        Log{PromptTokens: 2, CompletionTokens: 9255, Other: `{"cache_tokens":46137,"cache_creation_tokens":3736,"admin_info":{"usage_billing_path":"billing-usage-anthropic"}}`},
 			wantTotal:  59130,
 			wantInput:  49875,
 			wantCached: 46137,
@@ -34,7 +34,7 @@ func TestLogTokenStatAddMatchesInputAccounting(t *testing.T) {
 		},
 		{
 			name:       "split 5m and 1h cache writes replace the legacy total",
-			log:        Log{Other: `{"claude":true,"cache_creation_tokens_5m":10,"cache_creation_tokens_1h":5,"cache_creation_tokens":999}`},
+			log:        Log{Other: `{"cache_creation_tokens_5m":10,"cache_creation_tokens_1h":5,"cache_creation_tokens":999,"admin_info":{"usage_billing_path":"billing-usage-anthropic"}}`},
 			wantTotal:  15,
 			wantInput:  15,
 			wantCached: 0,
@@ -50,11 +50,19 @@ func TestLogTokenStatAddMatchesInputAccounting(t *testing.T) {
 		},
 		{
 			name:       "normalized cache writes include tokens outside the duration breakdown",
-			log:        Log{PromptTokens: 2, CompletionTokens: 100, Other: `{"claude":true,"cache_tokens":200000,"cache_write_tokens":5000,"cache_creation_tokens_5m":3000,"cache_creation_tokens_1h":736}`},
+			log:        Log{PromptTokens: 2, CompletionTokens: 100, Other: `{"cache_tokens":200000,"cache_write_tokens":5000,"cache_creation_tokens_5m":3000,"cache_creation_tokens_1h":736,"admin_info":{"usage_billing_path":"billing-usage-anthropic"}}`},
 			wantTotal:  205102,
 			wantInput:  205002,
 			wantCached: 200000,
 			wantRate:   97.56,
+		},
+		{
+			name:       "claude flag alone no longer changes the input total",
+			log:        Log{PromptTokens: 2, CompletionTokens: 100, Other: `{"claude":true,"cache_tokens":1000}`},
+			wantTotal:  102,
+			wantInput:  2,
+			wantCached: 1000,
+			wantRate:   100,
 		},
 		{
 			name:       "normalized input already includes cache reads and writes",
@@ -71,6 +79,30 @@ func TestLogTokenStatAddMatchesInputAccounting(t *testing.T) {
 			wantInput:  10,
 			wantCached: 50,
 			wantRate:   100,
+		},
+		{
+			name:       "openai billing path keeps a claude-format prompt as the total",
+			log:        Log{PromptTokens: 179788, CompletionTokens: 94, Other: `{"claude":true,"cache_tokens":178304,"admin_info":{"usage_billing_path":"billing-usage-openai"}}`},
+			wantTotal:  179882,
+			wantInput:  179788,
+			wantCached: 178304,
+			wantRate:   99.17,
+		},
+		{
+			name:       "anthropic billing path adds cache even without the claude flag",
+			log:        Log{PromptTokens: 2, CompletionTokens: 100, Other: `{"cache_tokens":46137,"cache_creation_tokens":3736,"admin_info":{"usage_billing_path":"billing-usage-anthropic"}}`},
+			wantTotal:  49975,
+			wantInput:  49875,
+			wantCached: 46137,
+			wantRate:   92.5,
+		},
+		{
+			name:       "tiered billing length is the normalized total input",
+			log:        Log{PromptTokens: 179788, CompletionTokens: 94, Other: `{"claude":true,"cache_tokens":178304,"billing_tokens":{"len":179788,"p":1484,"cr":178304,"c":94}}`},
+			wantTotal:  179882,
+			wantInput:  179788,
+			wantCached: 178304,
+			wantRate:   99.17,
 		},
 		{
 			name:       "unparseable other counts only prompt and completion tokens",
@@ -173,6 +205,11 @@ func TestRankingsUsesLogTokenTotals(t *testing.T) {
 				other.SetPublic("cache_tokens", 200000)
 				other.SetPublic("cache_creation_tokens", 3000)
 				other.SetPublic("cache_write_tokens", 3000)
+				if tc.claude {
+					other.SetAdmin(logOtherUsageBillingPathKey, "billing-usage-anthropic")
+				} else {
+					other.SetAdmin(logOtherUsageBillingPathKey, "billing-usage-openai")
+				}
 				RecordConsumeLog(c, 1, RecordConsumeLogParams{
 					ModelName: "mixed-protocol-model", PromptTokens: tc.prompt, CompletionTokens: 100,
 					TokenId: 1, ChannelId: 1, Group: "default", Quota: 7, Other: other,

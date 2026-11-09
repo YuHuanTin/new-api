@@ -342,24 +342,41 @@ export function hasAnyCacheTokens(
   )
 }
 
-/**
- * Input tokens shown in the usage log. Claude-style logs store `prompt_tokens`
- * as uncached input already, while OpenAI-style logs include cached tokens in
- * `prompt_tokens`, so only the latter needs cache reads removed.
- */
+/** 展示用缓存读取：文本缓存与图片缓存子集取较大值。 */
+function cacheReadTokens(other: LogOtherData): number {
+  return Math.max(other.cache_tokens || 0, other.image_cache_tokens || 0)
+}
+
+/** 总输入 token（含缓存读写）：优先接口派生值，极老日志按 prompt_tokens。 */
+function inputTokensTotal(
+  log: { prompt_tokens: number },
+  other: LogOtherData | null | undefined
+): number {
+  const normalized = other?.input_tokens_total
+  if (typeof normalized === 'number' && normalized > 0) return normalized
+  return Math.max(log.prompt_tokens || 0, 0)
+}
+
+/** 展示输入 = 总输入 − 缓存读取 − 缓存写入，不再区分请求格式。 */
 export function getDisplayInputTokens(
   log: { prompt_tokens: number },
   other: LogOtherData | null | undefined
 ): number {
-  if (other?.claude === true) return log.prompt_tokens
-  return log.prompt_tokens - (other?.cache_tokens || 0)
+  if (!other) return log.prompt_tokens
+  const cacheWrite =
+    (other.cache_creation_tokens_5m || 0) +
+      (other.cache_creation_tokens_1h || 0) ||
+    other.cache_creation_tokens ||
+    0
+  return Math.max(
+    inputTokensTotal(log, other) - cacheReadTokens(other) - cacheWrite,
+    0
+  )
 }
 
 /**
- * 缓存命中率：缓存读取占输入 token 的百分比，和服务端统计卡片的口径一致
- * Claude 的 prompt_tokens 不含缓存，输入要把缓存读写加回来；缓存写入不算命中
- * 日志报告了缓存字段就返回数字（0 也返回，进度条显示空轨道）；日志没有缓存
- * 信息时返回 null，调用方据此不显示进度条
+ * 缓存命中率 = 缓存读取 / 输入总量，与服务端统计卡片口径一致；缓存写入不算命中
+ * 日志报告了缓存字段就返回数字（0 也返回），没有缓存信息时返回 null
  */
 export function getLogCacheRate(
   log: { prompt_tokens: number },
@@ -373,18 +390,8 @@ export function getLogCacheRate(
     other.cache_creation_tokens_5m !== undefined ||
     other.cache_creation_tokens_1h !== undefined
   if (!reportsCache) return null
-  const cacheRead = Math.max(
-    other.cache_tokens || 0,
-    other.image_cache_tokens || 0
-  )
-  const cacheWrite =
-    (other.cache_creation_tokens_5m || 0) +
-      (other.cache_creation_tokens_1h || 0) ||
-    other.cache_creation_tokens ||
-    0
-  const promptTokens = Math.max(log.prompt_tokens || 0, 0)
-  const inputTokens =
-    other.claude === true ? promptTokens + cacheRead + cacheWrite : promptTokens
+  const cacheRead = cacheReadTokens(other)
+  const inputTokens = inputTokensTotal(log, other)
   if (inputTokens <= 0) return null
   return Math.min(100, (cacheRead / inputTokens) * 100)
 }

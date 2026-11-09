@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
@@ -36,8 +37,22 @@ func (s *LogTokenStat) Add(log *Log) {
 	// 旧版 Claude 日志的 prompt_tokens 不含缓存读写，其他协议已包含
 	inputTokens := otherTokenCount(other, "input_tokens_total")
 	if inputTokens == 0 {
+		// 动态计费日志保存了实际参与结算的总上下文长度
+		if billingTokens, ok := other[logOtherBillingTokensKey].(map[string]any); ok {
+			if length, ok := billingTokens["len"].(float64); ok && length > 0 {
+				inputTokens = int64(length)
+			}
+		}
+	}
+	if inputTokens == 0 {
 		inputTokens = promptTokens
-		if other["claude"] == true {
+		var billingPath string
+		if adminInfo, ok := other[logOtherAdminInfoKey].(map[string]any); ok {
+			billingPath, _ = adminInfo[logOtherUsageBillingPathKey].(string)
+		}
+		// Anthropic 的 prompt_tokens 不含缓存读写；其余语义（含无结算语义的
+		// 老日志）prompt_tokens 就是总输入，不再看 claude 标记。
+		if strings.HasPrefix(billingPath, "billing-usage-anthropic") {
 			inputTokens += cachedTokens + cacheWriteTokens
 		}
 	}

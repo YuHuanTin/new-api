@@ -53,7 +53,7 @@ describe('common usage log token column', () => {
     expect(screen.getByText('Cache R 47,872')).toBeVisible()
   })
 
-  it('shows Claude input tokens as reported without subtracting cache reads', () => {
+  it('shows Claude input tokens from the normalized total', () => {
     const log = usageLogSchema.parse({
       id: 1,
       user_id: 1,
@@ -66,6 +66,7 @@ describe('common usage log token column', () => {
         claude: true,
         cache_tokens: 46137,
         cache_creation_tokens: 3736,
+        input_tokens_total: 49875,
       }),
     })
 
@@ -74,6 +75,24 @@ describe('common usage log token column', () => {
     expect(screen.getByText('2 / 9,255')).toBeVisible()
     expect(screen.getByText('Cache R 46,137')).toBeVisible()
     expect(screen.getByText('W 3,736')).toBeVisible()
+  })
+
+  it('ignores the request-format flag when no normalized total is reported', () => {
+    const log = usageLogSchema.parse({
+      id: 1,
+      user_id: 1,
+      created_at: 1,
+      type: 2,
+      content: '',
+      prompt_tokens: 1000,
+      completion_tokens: 30,
+      other: JSON.stringify({ claude: true, cache_tokens: 900 }),
+    })
+
+    render(<TokenColumnView log={log} />)
+
+    expect(screen.getByText('100 / 30')).toBeVisible()
+    expect(screen.getByText('90.0%')).toBeVisible()
   })
 
   it('shows the cache hit rate under the token counts', () => {
@@ -92,6 +111,28 @@ describe('common usage log token column', () => {
 
     expect(screen.getByLabelText('Cache Rate')).toBeVisible()
     expect(screen.getByText('97.4%')).toBeVisible()
+  })
+
+  it('uses the normalized input total when usage dialect differs from request format', () => {
+    const log = usageLogSchema.parse({
+      id: 1,
+      user_id: 1,
+      created_at: 1,
+      type: 2,
+      content: '',
+      prompt_tokens: 179788,
+      completion_tokens: 94,
+      other: JSON.stringify({
+        claude: true,
+        cache_tokens: 178304,
+        input_tokens_total: 179788,
+      }),
+    })
+
+    render(<TokenColumnView log={log} />)
+
+    expect(screen.getByText('1,484 / 94')).toBeVisible()
+    expect(screen.getByText('99.2%')).toBeVisible()
   })
 
   it('fills the cache bar to the reported cache rate', () => {

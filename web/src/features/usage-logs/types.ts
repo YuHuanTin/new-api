@@ -187,6 +187,8 @@ export interface LogOtherData {
   text_output?: number
   cache_tokens?: number
   image_cache_tokens?: number
+  // 按结算语义归一化的总输入（含缓存读写）
+  input_tokens_total?: number
   billing_tokens?: Record<string, number>
   cache_creation_tokens?: number
   cache_creation_tokens_5m?: number
