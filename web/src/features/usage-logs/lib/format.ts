@@ -347,8 +347,11 @@ function cacheReadTokens(other: LogOtherData): number {
   return Math.max(other.cache_tokens || 0, other.image_cache_tokens || 0)
 }
 
-/** 总输入 token（含缓存读写）：优先接口派生值，极老日志按 prompt_tokens。 */
-function inputTokensTotal(
+/**
+ * 总输入 token（含缓存读写）：优先接口派生值，极老日志按 prompt_tokens。
+ * 服务端按结算语义归一化，不同请求格式的日志可以直接比较。
+ */
+export function getInputTokensTotal(
   log: { prompt_tokens: number },
   other: LogOtherData | null | undefined
 ): number {
@@ -369,7 +372,7 @@ export function getDisplayInputTokens(
     other.cache_creation_tokens ||
     0
   return Math.max(
-    inputTokensTotal(log, other) - cacheReadTokens(other) - cacheWrite,
+    getInputTokensTotal(log, other) - cacheReadTokens(other) - cacheWrite,
     0
   )
 }
@@ -391,7 +394,7 @@ export function getLogCacheRate(
     other.cache_creation_tokens_1h !== undefined
   if (!reportsCache) return null
   const cacheRead = cacheReadTokens(other)
-  const inputTokens = inputTokensTotal(log, other)
+  const inputTokens = getInputTokensTotal(log, other)
   if (inputTokens <= 0) return null
   return Math.min(100, (cacheRead / inputTokens) * 100)
 }

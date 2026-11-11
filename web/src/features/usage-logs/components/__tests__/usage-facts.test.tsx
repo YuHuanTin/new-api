@@ -109,6 +109,26 @@ test('shows the recorded request and response models in log details', () => {
   queryClient.clear()
 })
 
+test('shows the normalized total input so cache reads stay within the input count', () => {
+  const queryClient = renderDetails(
+    {
+      cache_tokens: 112896,
+      input_tokens_total: 114155,
+    },
+    1259
+  )
+  expect(rowValue('Input Tokens')).toBe('114,155')
+  expect(rowValue('Cache Read')).toBe('112,896')
+  queryClient.clear()
+})
+
+test('falls back to prompt tokens when the log has no normalized input total', () => {
+  const queryClient = renderDetails({ cache_tokens: 154240 }, 154836)
+  expect(rowValue('Input Tokens')).toBe('154,836')
+  expect(rowValue('Cache Read')).toBe('154,240')
+  queryClient.clear()
+})
+
 test('splits OpenAI cache writes into 30-minute and 12-hour rows with their prices', () => {
   const queryClient = renderDetails(
     {

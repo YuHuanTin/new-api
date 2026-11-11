@@ -78,6 +78,7 @@ import {
   hasAnyCacheTokens,
   isViolationFeeLog,
   getFirstResponseTimeColor,
+  getInputTokensTotal,
   getResponseTimeColor,
   getReasoningEffortVariant,
   logTokenName,
@@ -394,8 +395,10 @@ function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
   const { t } = useTranslation()
   const { log, other } = props
 
-  const promptTokens = log.prompt_tokens || 0
   const completionTokens = log.completion_tokens || 0
+  // 这里展示含缓存的总输入：Claude Messages 的 prompt_tokens 不含缓存读写，
+  // 直接展示会让「输入 Token」小于下方的「缓存读取」。缓存读写作为子项单列。
+  const inputTokens = getInputTokensTotal(log, other)
   const cacheRead = other.cache_tokens || 0
   const cacheWrite = other.cache_creation_tokens || 0
   const cacheWrite5m = other.cache_creation_tokens_5m || 0
@@ -404,13 +407,13 @@ function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
   // cache_creation_tokens counts OpenAI 30-minute and 12-hour writes together.
   const cacheWrite30m =
     cacheWrite12h > 0 ? Math.max(cacheWrite - cacheWrite12h, 0) : 0
-  const hasTokens = promptTokens > 0 || completionTokens > 0
+  const hasTokens = inputTokens > 0 || completionTokens > 0
 
   if (!hasTokens) return null
 
   const rows: Array<{ label: string; value: string }> = []
 
-  rows.push({ label: t('Input Tokens'), value: promptTokens.toLocaleString() })
+  rows.push({ label: t('Input Tokens'), value: inputTokens.toLocaleString() })
   rows.push({
     label: t('Output Tokens'),
     value: completionTokens.toLocaleString(),
