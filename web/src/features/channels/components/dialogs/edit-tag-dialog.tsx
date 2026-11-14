@@ -264,7 +264,7 @@ export function EditTagDialog({ open, onOpenChange }: EditTagDialogProps) {
           <div className='space-y-2'>
             <Label>
               {t('Models')}
-              <span className='text-muted-foreground ml-2 text-xs'>
+              <span className='text-destructive ml-2 text-xs'>
                 {t("(Override all channels' models)")}
               </span>
             </Label>
