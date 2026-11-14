@@ -23,6 +23,9 @@ import (
 
 const KeyRequestBody = "key_request_body"
 const KeyBodyStorage = "key_body_storage"
+
+// 临时调试用：LOCAL_DEBUG=1 时保存本次请求的上游抓包对象
+const LocalDebugUpstreamKey = "local_debug_upstream"
 const keyBodyReadError = "key_body_read_error"
 
 var ErrRequestBodyTooLarge = errors.New("request body too large")

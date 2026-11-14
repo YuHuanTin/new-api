@@ -13,6 +13,7 @@ import (
 )
 
 func SetRelayRouter(router *gin.Engine) {
+	router.Use(middleware.LocalDebugCapture()) // 临时调试：最先记录客户端原始请求
 	router.Use(middleware.CORS())
 	router.Use(middleware.DecompressRequestMiddleware())
 	router.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
