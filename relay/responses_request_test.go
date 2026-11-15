@@ -10,15 +10,20 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	awschannel "github.com/QuantumNous/new-api/relay/channel/aws"
 	claudechannel "github.com/QuantumNous/new-api/relay/channel/claude"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/requestplugin"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/model_setting"
+	"github.com/QuantumNous/new-api/setting/request_plugin_setting"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -184,6 +189,22 @@ func TestClaude1hCacheTokenGroupPolicy(t *testing.T) {
 
 func TestClaude1hCacheReachesUpstreamAcrossRequestPaths(t *testing.T) {
 	service.InitHttpClient()
+	require.NoError(t, i18n.Init())
+	plugin, err := jsplugin.DefaultRegistry.Register(`
+export const meta = {apiVersion: 1, key: "rp-claude-cache-egress", name: "Cache egress", version: "1.0.0", author: {name: "Test"}};
+export function egress(ctx, req) {
+  if (req.body.cache_control?.ttl !== "1h") {
+    return {action: "reject", code: "cache.ttl", message: "Egress must see the final cache TTL"};
+  }
+  return {action: "continue"};
+}`, jsplugin.Options{})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = jsplugin.DefaultRegistry.Unregister(plugin.Meta.Key) })
+	previousInstances, err := common.Marshal(request_plugin_setting.GetInstances())
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{request_plugin_setting.InstancesOption: string(previousInstances)}))
+	})
 	settings := model_setting.GetGlobalSettings()
 	previous := settings.PassThroughRequestEnabled
 	settings.PassThroughRequestEnabled = false
@@ -202,6 +223,11 @@ func TestClaude1hCacheReachesUpstreamAcrossRequestPaths(t *testing.T) {
 		{name: "disabled token", path: "/v1/messages", format: types.RelayFormatClaude, disabled: true, raw: `{"messages":[{"role":"user","content":"hi"}],"max_tokens":8}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			instances := `[{"id":"cache-egress","name":"Cache egress","plugin":"rp-claude-cache-egress","enabled":true,"global":true}]`
+			if tc.disabled {
+				instances = "[]"
+			}
+			require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{request_plugin_setting.InstancesOption: instances}))
 			received := make(chan []byte, 1)
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				body, err := io.ReadAll(r.Body)
@@ -226,6 +252,8 @@ func TestClaude1hCacheReachesUpstreamAcrossRequestPaths(t *testing.T) {
 			common.SetContextKey(c, constant.ContextKeyTokenClaude1hCache, !tc.disabled)
 			common.SetContextKey(c, constant.ContextKeyChannelSetting, dto.ChannelSettings{PassThroughBodyEnabled: tc.passthrough})
 			common.SetContextKey(c, constant.ContextKeyChannelParamOverride, map[string]any{"cache_control": map[string]any{"type": "ephemeral", "ttl": "5m"}})
+			_, _, ingressErr := requestplugin.Ingress(c, tc.format)
+			require.Nil(t, ingressErr)
 			var request dto.Request
 			switch tc.format {
 			case types.RelayFormatClaude:
@@ -380,4 +408,51 @@ func TestPrepareResponsesRequestDeepSeekEffectiveReasoning(t *testing.T) {
 			}
 		})
 	}
+}
+
+// finalizedEgressPlugin rejects a body whose first input item is reasoning,
+// which only the DeepSeek finalizer adds to the test request.
+const finalizedEgressPlugin = `export const meta = {apiVersion: 1, key: "rp-finalized-egress", name: "Finalized egress", version: "1.0.0", author: {name: "Test"}};
+export function egress(ctx, req) {
+  const input = req.body && req.body.input;
+  if (Array.isArray(input) && input.length && input[0].type === "reasoning") {
+    return {action: "reject", code: "finalized.seen", message: "Egress saw the finalized body"};
+  }
+  return {action: "continue"};
+}`
+
+func TestPrepareResponsesRequestEgressReadsTheFinalizedBody(t *testing.T) {
+	settings := model_setting.GetGlobalSettings()
+	previous := settings.PassThroughRequestEnabled
+	t.Cleanup(func() { settings.PassThroughRequestEnabled = previous })
+	settings.PassThroughRequestEnabled = false
+	require.NoError(t, i18n.Init())
+	plugin, err := jsplugin.DefaultRegistry.Register(finalizedEgressPlugin, jsplugin.Options{})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = jsplugin.DefaultRegistry.Unregister(plugin.Meta.Key) })
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{request_plugin_setting.InstancesOption: `[{"id":"fe","name":"Finalized","plugin":"rp-finalized-egress","enabled":true,"global":true}]`}))
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{request_plugin_setting.InstancesOption: "[]"}))
+	})
+
+	raw := `{"model":"deepseek-flash","reasoning":{"effort":"high"},"input":[{"type":"function_call","call_id":"c1","name":"lookup","arguments":"{}"}]}`
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(raw))
+	c.Request.Header.Set("Content-Type", "application/json")
+	t.Cleanup(func() { common.CleanupBodyStorage(c) })
+	common.SetContextKey(c, constant.ContextKeyOriginalModel, "deepseek-flash")
+	common.SetContextKey(c, constant.ContextKeyChannelType, constant.ChannelTypeDeepSeek)
+	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, "https://api.deepseek.com")
+	common.SetContextKey(c, constant.ContextKeyChannelSetting, dto.ChannelSettings{})
+	_, _, apiErr := requestplugin.Ingress(c, types.RelayFormatOpenAIResponses)
+	require.Nil(t, apiErr)
+	var req dto.OpenAIResponsesRequest
+	require.NoError(t, common.Unmarshal([]byte(raw), &req))
+	info := relaycommon.GenRelayInfoResponses(c, &req)
+	_, _, closer, apiErr := PrepareResponsesRequest(c, info, &req)
+	if closer != nil {
+		t.Cleanup(func() { _ = closer.Close() })
+	}
+	require.NotNil(t, apiErr, "egress must read the reasoning item the finalizer added")
+	assert.Equal(t, types.ErrorCodeRequestRejected, apiErr.GetErrorCode())
 }

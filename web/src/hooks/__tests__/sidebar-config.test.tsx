@@ -157,7 +157,7 @@ describe('audit log sidebar entry', () => {
     expect(titles).toContain('Usage Logs')
   })
 
-  it('legacy configurations show a separate Audit Logs link immediately after Usage Logs', () => {
+  it('legacy configurations show a separate Audit Logs link after Usage Logs', () => {
     const { result } = sidebarFor(
       { console: { enabled: true, log: true } },
       { console: { enabled: true, log: true } }
@@ -165,7 +165,11 @@ describe('audit log sidebar entry', () => {
     const items =
       result.current.find((group) => group.id === 'general')?.items ?? []
     const usageIndex = items.findIndex((item) => item.title === 'Usage Logs')
-    expect(items[usageIndex + 1]).toMatchObject({
+    const auditIndex = items.findIndex(
+      (item) => item.url === '/usage-logs/audit'
+    )
+    expect(auditIndex).toBeGreaterThan(usageIndex)
+    expect(items[auditIndex]).toMatchObject({
       title: 'Audit Logs',
       url: '/usage-logs/audit',
     })
@@ -203,31 +207,32 @@ describe('audit log sidebar entry', () => {
 })
 
 describe('pricing sidebar shortcuts', () => {
-  it(
-    'places model and group pricing after Task Plugins and marks them super-admin-only',
-    () => {
-      const { result } = sidebarFor()
-      const items =
-        result.current.find((group) => group.id === 'admin')?.items ?? []
-      const titles = items.map((item) => item.title)
-      const taskPluginsIndex = titles.indexOf('Task Plugins')
+  it('places model and group pricing after Plugins and marks them super-admin-only', () => {
+    const { result } = sidebarFor()
+    const items =
+      result.current.find((group) => group.id === 'admin')?.items ?? []
+    const pluginsIndex = items.findIndex((item) => item.url === '/task-plugins')
 
-      expect(items.slice(taskPluginsIndex, taskPluginsIndex + 4)).toEqual([
-        expect.objectContaining({ title: 'Task Plugins' }),
-        expect.objectContaining({
-          title: 'Model Pricing',
-          url: '/system-settings/billing/model-pricing',
-          requiredRole: ROLE.SUPER_ADMIN,
-        }),
-        expect.objectContaining({
-          title: 'Group Pricing',
-          url: '/system-settings/billing/group-pricing',
-          requiredRole: ROLE.SUPER_ADMIN,
-        }),
-        expect.objectContaining({ title: 'System Settings' }),
-      ])
-    }
-  )
+    expect(items.slice(pluginsIndex, pluginsIndex + 5)).toEqual([
+      expect.objectContaining({ title: 'Plugins' }),
+      expect.objectContaining({
+        title: 'Model Pricing',
+        url: '/system-settings/billing/model-pricing',
+        requiredRole: ROLE.SUPER_ADMIN,
+      }),
+      expect.objectContaining({
+        title: 'Group Pricing',
+        url: '/system-settings/billing/group-pricing',
+        requiredRole: ROLE.SUPER_ADMIN,
+      }),
+      expect.objectContaining({
+        title: 'Request processing',
+        url: '/request-processing',
+        requiredRole: ROLE.SUPER_ADMIN,
+      }),
+      expect.objectContaining({ title: 'System Settings' }),
+    ])
+  })
 })
 
 describe('model pricing badge', () => {

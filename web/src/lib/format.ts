@@ -39,7 +39,7 @@ export function formatNumber(
   )
 }
 
-/** 固定保留一位小数的百分比，例如 `97.4%`、`0.0%`。 */
+/** 百分比固定保留一位小数 */
 export function formatPercentOneDecimal(
   value: number | null | undefined,
   locales?: Intl.LocalesArgument
@@ -49,6 +49,22 @@ export function formatPercentOneDecimal(
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   }).format(value as number)}%`
+}
+
+const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB']
+
+/** A byte count in decimal units, for example 1.2 MB. */
+export function formatBytes(
+  bytes: number,
+  locales?: Intl.LocalesArgument
+): string {
+  let value = bytes
+  let unit = 0
+  while (Math.abs(value) >= 1000 && unit < BYTE_UNITS.length - 1) {
+    value /= 1000
+    unit += 1
+  }
+  return `${Intl.NumberFormat(locales, { maximumFractionDigits: 1 }).format(value)} ${BYTE_UNITS[unit]}`
 }
 
 export function formatCompactNumber(

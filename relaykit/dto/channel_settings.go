@@ -1,13 +1,14 @@
 package dto
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
 
+	"github.com/MoeForge/moego/regexp"
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
@@ -39,6 +40,9 @@ type ChannelSettings struct {
 	// disables the offending account once the threshold is exceeded. Every
 	// channel starts with it off, so enabling it is always a deliberate act
 	CyberGuardEnabled bool `json:"cyber_guard_enabled,omitempty"`
+	// RequestPlugins lists the request plugin instances the channel binds,
+	// by instance id, in run order.
+	RequestPlugins []string `json:"request_plugins,omitempty"`
 }
 
 // BindsTaskPlugin reports whether the channel is bound to the task plugin,
@@ -144,6 +148,9 @@ type ChannelOtherSettings struct {
 	// rejection. Empty follows the default allow policy. Accepted values:
 	// "", "allow", "safe", "strict".
 	ToolLossPolicy string `json:"tool_loss_policy,omitempty"`
+	// PluginConfig is the config a type-61 channel gives its plugin, checked
+	// against the plugin's meta.channelConfig when the channel is saved.
+	PluginConfig json.RawMessage `json:"plugin_config,omitempty"`
 }
 
 func (s *ChannelOtherSettings) IsOpenRouterEnterprise() bool {
@@ -242,6 +249,12 @@ const (
 	// AdvancedCustomBalancePath identifies the optional balance lookup route used by channel management.
 	AdvancedCustomBalancePath = "/v1/dashboard/billing/credit_grants"
 )
+
+// AcceptsModel reports whether the route's Models list admits model, as
+// MatchPathForModel matches it; an empty list admits every model.
+func (r AdvancedCustomRoute) AcceptsModel(model string) bool {
+	return matchAdvancedCustomRouteModel(r.Models, strings.TrimSpace(model))
+}
 
 // IsNative reports whether the route forwards requests without protocol
 // conversion. Validate normalizes an empty converter to none, but callers may
