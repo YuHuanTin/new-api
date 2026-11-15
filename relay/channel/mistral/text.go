@@ -9,10 +9,15 @@ import (
 
 var mistralToolCallIdRegexp = regexp.MustCompile("^[a-zA-Z0-9]{9}$")
 
-func requestOpenAI2Mistral(request *dto.GeneralOpenAIRequest) *dto.GeneralOpenAIRequest {
+func requestOpenAI2Mistral(request *dto.GeneralOpenAIRequest) (*dto.GeneralOpenAIRequest, error) {
 	messages := make([]dto.Message, 0, len(request.Messages))
 	idMap := make(map[string]string)
 	for _, message := range request.Messages {
+		// Mistral 只接受 system/user/assistant/tool 四种角色
+		if message.Role == "developer" {
+			message.Role = "system"
+		}
+
 		// 1. tool_calls.id
 		toolCalls := message.ParseToolCalls()
 		if toolCalls != nil {
@@ -47,37 +52,51 @@ func requestOpenAI2Mistral(request *dto.GeneralOpenAIRequest) *dto.GeneralOpenAI
 			}
 		}
 
-		mediaMessages := message.ParseContent()
-		if message.Role == "assistant" && message.ToolCalls != nil && message.Content == "" {
-			mediaMessages = []dto.MediaContent{}
-		}
-		for j, mediaMessage := range mediaMessages {
-			if mediaMessage.Type == dto.ContentTypeImageURL {
-				imageUrl := mediaMessage.GetImageMedia()
-				mediaMessage.ImageUrl = imageUrl.Url
+		// 原生内容块必须在通用解析前保留，否则 thinking 会被丢弃
+		if message.Role == "system" || message.Role == "assistant" {
+			content, err := mistralThinkingContent(message)
+			if err != nil {
+				return nil, err
+			}
+			message.SetNullContent()
+			message.Content = content
+		} else {
+			mediaMessages := message.ParseContent()
+			for j, mediaMessage := range mediaMessages {
+				if mediaMessage.Type == dto.ContentTypeImageURL {
+					imageUrl := mediaMessage.GetImageMedia()
+					mediaMessage.ImageUrl = imageUrl.Url
+				}
+				// Mistral 的内容块不接受 cache_control
+				mediaMessage.CacheControl = nil
 				mediaMessages[j] = mediaMessage
 			}
+			message.SetMediaContent(mediaMessages)
 		}
-		message.SetMediaContent(mediaMessages)
 		messages = append(messages, dto.Message{
 			Role:       message.Role,
 			Content:    message.Content,
+			Prefix:     message.Prefix,
 			ToolCalls:  message.ToolCalls,
 			ToolCallId: message.ToolCallId,
 		})
 	}
 	out := &dto.GeneralOpenAIRequest{
-		Model:       request.Model,
-		Stream:      request.Stream,
-		Messages:    messages,
-		Temperature: request.Temperature,
-		TopP:        request.TopP,
-		Tools:       request.Tools,
-		ToolChoice:  request.ToolChoice,
+		Model:          request.Model,
+		Stream:         request.Stream,
+		Messages:       messages,
+		Temperature:    request.Temperature,
+		TopP:           request.TopP,
+		Tools:          request.Tools,
+		ToolChoice:     request.ToolChoice,
+		ResponseFormat: request.ResponseFormat,
+		PromptCacheKey: request.PromptCacheKey,
+		// 推理强度必须转发，否则客户端设置的 effort 会被静默丢弃
+		ReasoningEffort: mistralReasoningEffort(request.Model, request.ReasoningEffort),
 	}
 	if request.MaxTokens != nil || request.MaxCompletionTokens != nil {
 		maxTokens := request.GetMaxTokens()
 		out.MaxTokens = &maxTokens
 	}
-	return out
+	return out, nil
 }
