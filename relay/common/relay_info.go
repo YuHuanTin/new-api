@@ -88,6 +88,7 @@ type RelayInfo struct {
 	UsingGroup        string // 使用的分组，当auto跨分组重试时，会变动
 	UserGroup         string // 用户所在分组
 	TokenUnlimited    bool
+	Force1hCache      bool // 强制 Claude 1 小时缓存
 	StartTime         time.Time
 	FirstResponseTime time.Time
 	isFirstResponse   bool
@@ -634,6 +635,8 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		TokenKey:       common.GetContextKeyString(c, constant.ContextKeyTokenKey),
 		TokenUnlimited: common.GetContextKeyBool(c, constant.ContextKeyTokenUnlimited),
 		TokenGroup:     tokenGroup,
+
+		Force1hCache: common.GetContextKeyBool(c, constant.ContextKeyTokenClaude1hCache) && tokenGroup != "auto",
 
 		isFirstResponse: true,
 		RelayMode:       relayconstant.Path2RelayMode(c.Request.URL.Path),
@@ -1270,6 +1273,157 @@ func hasRemovableDisabledField(jsonData []byte, channelOtherSettings dto.Channel
 		(channelOtherSettings.DisableStore && values[3].Exists()) ||
 		(!channelOtherSettings.AllowSafetyIdentifier && values[4].Exists()) ||
 		(!channelOtherSettings.AllowIncludeObfuscation && values[5].Exists())
+}
+
+// ForceClaude1hCache 将 Claude 缓存标记设为 1 小时
+// 保留标记位置，Bedrock Runtime 无标记时补内容块缓存
+func ForceClaude1hCache(jsonData []byte, info *RelayInfo) ([]byte, error) {
+	if info == nil || !info.Force1hCache || info.GetFinalRequestRelayFormat() != types.RelayFormatClaude {
+		return jsonData, nil
+	}
+	if len(jsonData) == 0 || !ojson.ValidBytes(jsonData) {
+		return jsonData, nil
+	}
+	automatic := info.ChannelMeta == nil || info.ChannelType != constant.ChannelTypeAws ||
+		info.ChannelOtherSettings.AwsApiType == dto.AwsApiTypeMantle
+	doc := ojson.NewDoc(jsonData)
+	// 缓存父字段保留最后一份原文，避免解析歧义
+	cacheSection := func(object ojson.Result, parent, key string) (ojson.Result, error) {
+		var value ojson.Result
+		copies := 0
+		object.ForEach(func(member, node ojson.Result) bool {
+			if member.Str == key {
+				value = node
+				copies++
+			}
+			return true
+		})
+		if copies > 1 {
+			if err := SetJSONMember(doc, parent, key, common.RawMessage(value.Raw)); err != nil {
+				return ojson.Result{}, err
+			}
+		}
+		return value, nil
+	}
+	type cacheLocation struct {
+		path       string
+		block      ojson.Result
+		duplicates bool
+	}
+	markers := make([]cacheLocation, 0, 4)
+	var fallback cacheLocation
+	collectCacheBlock := func(path string, block ojson.Result, tool bool) {
+		var control ojson.Result
+		copies := 0
+		block.ForEach(func(key, value ojson.Result) bool {
+			if key.Str == "cache_control" {
+				control = value
+				copies++
+			}
+			return true
+		})
+		if control.IsObject() || copies > 1 {
+			markers = append(markers, cacheLocation{path: path, block: control, duplicates: copies > 1})
+		}
+		if automatic {
+			return
+		}
+		if block.Type == ojson.String {
+			if strings.TrimSpace(block.String()) != "" {
+				fallback = cacheLocation{path: path, block: block}
+			}
+			return
+		}
+		if tool && block.IsObject() {
+			fallback = cacheLocation{path: path, block: block}
+			return
+		}
+		switch block.Get("type").String() {
+		case "text", "image", "document", "tool_use", "tool_result", "search_result":
+			fallback = cacheLocation{path: path, block: block}
+		}
+	}
+	for _, section := range []string{"tools", "system"} {
+		node, err := cacheSection(doc.Get("@this"), "", section)
+		if err != nil {
+			return nil, err
+		}
+		if section == "system" && node.Type == ojson.String {
+			collectCacheBlock(section, node, false)
+		} else if node.IsArray() {
+			for i, block := range node.Array() {
+				collectCacheBlock(fmt.Sprintf("%s.%d", section, i), block, section == "tools")
+			}
+		}
+	}
+	messages, err := cacheSection(doc.Get("@this"), "", "messages")
+	if err != nil {
+		return nil, err
+	}
+	if messages.IsArray() {
+		for i, message := range messages.Array() {
+			content, err := cacheSection(message, fmt.Sprintf("messages.%d", i), "content")
+			if err != nil {
+				return nil, err
+			}
+			if content.Type == ojson.String {
+				collectCacheBlock(fmt.Sprintf("messages.%d.content", i), content, false)
+			} else if content.IsArray() {
+				for j, block := range content.Array() {
+					collectCacheBlock(fmt.Sprintf("messages.%d.content.%d", i, j), block, false)
+				}
+			}
+		}
+	}
+	if automatic {
+		collectCacheBlock("", doc.Get("@this"), false)
+	} else {
+		if err := DeleteJSONMember(doc, "cache_control"); err != nil {
+			return nil, err
+		}
+	}
+	hasMarker := false
+	for _, location := range markers {
+		// 重复标记保留最后一份，避免上游读取旧 TTL
+		if location.duplicates {
+			if err := SetJSONMember(doc, location.path, "cache_control", common.RawMessage(location.block.Raw)); err != nil {
+				return nil, err
+			}
+		}
+		if !location.block.IsObject() {
+			continue
+		}
+		hasMarker = true
+		path := "cache_control"
+		if location.path != "" {
+			path = location.path + ".cache_control"
+		}
+		if err := SetJSONMember(doc, path, "ttl", "1h"); err != nil {
+			return nil, err
+		}
+	}
+	if hasMarker {
+		return doc.Bytes(), nil
+	}
+	const marker = `{"type":"ephemeral","ttl":"1h"}`
+	if automatic {
+		if err := doc.SetRaw("cache_control", marker); err != nil {
+			return nil, err
+		}
+	} else if fallback.path != "" {
+		if fallback.block.Type == ojson.String {
+			blocks, err := common.Marshal([]dto.ClaudeMediaMessage{{Type: dto.ContentTypeText, Text: common.GetPointer(fallback.block.String()), CacheControl: common.RawMessage(marker)}})
+			if err != nil {
+				return nil, err
+			}
+			if err := doc.SetRawBytes(fallback.path, blocks); err != nil {
+				return nil, err
+			}
+		} else if err := doc.SetRaw(fallback.path+".cache_control", marker); err != nil {
+			return nil, err
+		}
+	}
+	return doc.Bytes(), nil
 }
 
 // RemoveGeminiDisabledFields removes disabled fields from Gemini request JSON data

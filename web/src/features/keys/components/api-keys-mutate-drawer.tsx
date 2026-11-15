@@ -67,6 +67,7 @@ import { useStatus } from '@/hooks/use-status'
 import { getUserModels, getUserGroups } from '@/lib/api'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import { handleServerError } from '@/lib/handle-server-error'
+import { resolveModelProvider } from '@/lib/model-provider'
 import {
   requireServerSuccess,
   translateServerText,
@@ -268,6 +269,20 @@ export function ApiKeysMutateDrawer({
     isUpdate && currentRow ? `update:${currentRow.id}` : 'create'
   const isFormInitialized = initializedTarget === formTarget
   const selectedGroup = form.watch('group')
+
+  // 检查分组是否支持 Claude
+  const { data: groupModelsData } = useQuery({
+    queryKey: ['user-models', selectedGroup],
+    queryFn: async () =>
+      requireServerSuccess(await getUserModels(selectedGroup)),
+    enabled: open && !!selectedGroup && selectedGroup !== 'auto',
+    staleTime: 0,
+  })
+  const groupHasClaudeModel =
+    selectedGroup !== 'auto' &&
+    (groupModelsData?.data || []).some(
+      (model) => resolveModelProvider(model)?.name === 'Anthropic'
+    )
 
   // Correct group after groups load: if the form value is not in available groups, fall back
   useEffect(() => {
@@ -501,6 +516,28 @@ export function ApiKeysMutateDrawer({
                           )}
                           <RelatedPolicyLink section='routing' />
                         </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={!!field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              )}
+
+              {groupHasClaudeModel && (
+                <FormField
+                  control={form.control}
+                  name='force_claude_1h_cache'
+                  render={({ field }) => (
+                    <FormItem className={sideDrawerSwitchItemClassName()}>
+                      <div className='flex flex-col gap-0.5'>
+                        <FormLabel className='text-sm'>
+                          {t('Force 1-hour Claude cache')}
+                        </FormLabel>
                       </div>
                       <FormControl>
                         <Switch

@@ -49,13 +49,24 @@ const originalGet = apiClient.get
 const originalPost = apiClient.post
 let renderedDrawer: RenderedDrawer | null = null
 
-function installApiFixtures(createdPayloads: Array<Record<string, unknown>>) {
-  apiClient.get = async (url) => {
+function installApiFixtures(
+  createdPayloads: Array<Record<string, unknown>>,
+  modelsByGroup: Record<string, string[]> = {}
+) {
+  apiClient.get = async (url, config) => {
     switch (url) {
       case '/api/status':
         return { data: { data: { default_use_auto_group: true } } }
       case '/api/user/models':
-        return { data: { success: true, data: [] } }
+        return {
+          data: {
+            success: true,
+            data:
+              modelsByGroup[
+                (config as { params?: { group?: string } })?.params?.group || ''
+              ] || [],
+          },
+        }
       case '/api/user/self/groups':
         return {
           data: {
@@ -86,7 +97,7 @@ function installApiFixtures(createdPayloads: Array<Record<string, unknown>>) {
   }
 }
 
-async function renderCreateDrawer(): Promise<void> {
+async function renderCreateDrawer(): Promise<RenderedDrawer> {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -139,6 +150,7 @@ async function renderCreateDrawer(): Promise<void> {
     },
     { timeout: 1500 }
   )
+  return { queryClient }
 }
 
 function findButton(text: string, required: true): HTMLButtonElement
@@ -304,6 +316,7 @@ describe('API key expiry across editing sessions', () => {
         model_limits: '',
         allow_ips: '',
         allow_user_quota_query: true,
+        force_claude_1h_cache: false,
       }
       const second = { ...first, id: 2, name: 'non-expiring', expired_time: -1 }
       let resolveDetail!: (value: { data: unknown }) => void
@@ -422,5 +435,109 @@ describe('API keys mutate drawer user quota query switch', () => {
     fireEvent.click(findButton('Save changes', true))
     await waitFor(() => expect(createdPayloads).toHaveLength(1))
     expect(createdPayloads[0]?.allow_user_quota_query).toBe(false)
+  })
+})
+
+describe('API keys mutate drawer Claude cache switch', () => {
+  test('shows an off switch in a Claude group and submits the enabled choice', async () => {
+    const payloads: Array<Record<string, unknown>> = []
+    installApiFixtures(payloads, { default: ['claude-sonnet-4-5'] })
+    await renderCreateDrawer()
+    selectComboboxOption(getControlByLabel('Group'), 'Standard access')
+    fireEvent.click(findButton('Advanced Settings', true))
+
+    const cacheSwitch = await screen.findByRole('switch', {
+      name: 'Force 1-hour Claude cache',
+    })
+    expect(cacheSwitch).not.toBeChecked()
+    fireEvent.click(cacheSwitch)
+    expect(cacheSwitch).toBeChecked()
+    changeInput(getControlByLabel('Name'), 'claude-cache')
+    fireEvent.click(findButton('Save changes', true))
+    await waitFor(() => expect(payloads).toHaveLength(1))
+    expect(payloads[0]).toMatchObject({
+      group: 'default',
+      force_claude_1h_cache: true,
+    })
+  })
+
+  test('hides the switch in a group without Claude after leaving a Claude group', async () => {
+    installApiFixtures([], {
+      default: ['claude-sonnet-4-5'],
+      vip: ['gpt-4o'],
+    })
+    await renderCreateDrawer()
+    selectComboboxOption(getControlByLabel('Group'), 'Standard access')
+    fireEvent.click(findButton('Advanced Settings', true))
+    expect(
+      await screen.findByRole('switch', { name: 'Force 1-hour Claude cache' })
+    ).toBeVisible()
+
+    selectComboboxOption(getControlByLabel('Group'), 'Priority access')
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('switch', { name: 'Force 1-hour Claude cache' })
+      ).not.toBeInTheDocument()
+    )
+  })
+
+  test('disables an enabled choice when switching to Auto even with cached Claude models', async () => {
+    const payloads: Array<Record<string, unknown>> = []
+    installApiFixtures(payloads, { default: ['claude-sonnet-4-5'] })
+    const drawer = await renderCreateDrawer()
+    selectComboboxOption(getControlByLabel('Group'), 'Standard access')
+    fireEvent.click(findButton('Advanced Settings', true))
+    const cacheSwitch = await screen.findByRole('switch', {
+      name: 'Force 1-hour Claude cache',
+    })
+    fireEvent.click(cacheSwitch)
+    expect(cacheSwitch).toBeChecked()
+    act(() => {
+      drawer.queryClient.setQueryData(['user-models', 'auto'], {
+        success: true,
+        data: ['claude-sonnet-4-5'],
+      })
+    })
+
+    selectComboboxOption(getControlByLabel('Group'), 'Automatic routing')
+    expect(
+      screen.queryByRole('switch', { name: 'Force 1-hour Claude cache' })
+    ).not.toBeInTheDocument()
+    changeInput(getControlByLabel('Name'), 'auto-cache-off')
+    fireEvent.click(findButton('Save changes', true))
+    await waitFor(() => expect(payloads).toHaveLength(1))
+    expect(payloads[0]).toMatchObject({
+      group: 'auto',
+      force_claude_1h_cache: false,
+    })
+  })
+
+  test('preserves the enabled choice after a failed save and retries it', async () => {
+    const payloads: Array<Record<string, unknown>> = []
+    installApiFixtures(payloads, { default: ['claude-sonnet-4-5'] })
+    const postFixture = apiClient.post
+    const post = vi
+      .spyOn(apiClient, 'post')
+      .mockResolvedValueOnce({
+        data: { success: false, message: 'Create failed' },
+      })
+      .mockImplementation(postFixture)
+    await renderCreateDrawer()
+    selectComboboxOption(getControlByLabel('Group'), 'Standard access')
+    fireEvent.click(findButton('Advanced Settings', true))
+    const cacheSwitch = await screen.findByRole('switch', {
+      name: 'Force 1-hour Claude cache',
+    })
+    fireEvent.click(cacheSwitch)
+    changeInput(getControlByLabel('Name'), 'retry-claude-cache')
+
+    fireEvent.click(findButton('Save changes', true))
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(findButton('Save changes', true)).toBeEnabled())
+    expect(cacheSwitch).toBeChecked()
+    expect(payloads).toHaveLength(0)
+    fireEvent.click(findButton('Save changes', true))
+    await waitFor(() => expect(payloads).toHaveLength(1))
+    expect(payloads[0]?.force_claude_1h_cache).toBe(true)
   })
 })

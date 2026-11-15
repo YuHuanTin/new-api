@@ -52,6 +52,7 @@ const baseApiKey: ApiKey = {
   model_limits: '',
   allow_ips: '',
   allow_user_quota_query: false,
+  force_claude_1h_cache: false,
 }
 
 describe('API key Auto group form mapping', () => {
@@ -208,4 +209,52 @@ describe('API key user quota query form mapping', () => {
       )
     }
   )
+})
+
+describe('API key 1-hour Claude cache form mapping', () => {
+  test('creates new keys with the 1-hour cache off', () => {
+    for (const defaultUseAutoGroup of [true, false]) {
+      const defaults = getApiKeyFormDefaultValues(defaultUseAutoGroup)
+
+      expect(defaults.force_claude_1h_cache).toBe(false)
+      expect(transformFormDataToPayload(defaults).force_claude_1h_cache).toBe(
+        false
+      )
+    }
+  })
+
+  test.each([true, false])(
+    'keeps the stored value %s when an existing key is edited and saved',
+    (stored) => {
+      const defaults = transformApiKeyToFormDefaults({
+        ...baseApiKey,
+        group: 'default',
+        force_claude_1h_cache: stored,
+      })
+
+      expect(defaults.force_claude_1h_cache).toBe(stored)
+      expect(transformFormDataToPayload(defaults).force_claude_1h_cache).toBe(
+        stored
+      )
+    }
+  )
+
+  test('disables the 1-hour cache when an enabled key is saved in Auto', () => {
+    const defaults = getApiKeyFormDefaultValues(false)
+    const payload = transformFormDataToPayload({
+      ...defaults,
+      group: 'auto',
+      force_claude_1h_cache: true,
+    })
+    expect(payload.force_claude_1h_cache).toBe(false)
+  })
+
+  test('loads an old enabled Auto key with the 1-hour cache off', () => {
+    const defaults = transformApiKeyToFormDefaults({
+      ...baseApiKey,
+      group: 'auto',
+      force_claude_1h_cache: true,
+    })
+    expect(defaults.force_claude_1h_cache).toBe(false)
+  })
 })

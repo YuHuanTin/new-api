@@ -31,9 +31,11 @@ type Token struct {
 	AutoGroups         string         `json:"-" gorm:"type:text"`
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
 	// 允许用此令牌查询所属用户的额度；新建令牌默认开启，已有令牌升级后保持关闭
-	AllowUserQuotaQuery bool   `json:"allow_user_quota_query"`
-	CacheExpiresAt      int64  `json:"-" gorm:"-"`
-	CacheMAC            string `json:"-" gorm:"-"`
+	AllowUserQuotaQuery bool `json:"allow_user_quota_query"`
+	// 强制 Claude 1 小时缓存，默认关闭
+	ForceClaude1hCache bool   `json:"force_claude_1h_cache" gorm:"column:force_claude_1h_cache"`
+	CacheExpiresAt     int64  `json:"-" gorm:"-"`
+	CacheMAC           string `json:"-" gorm:"-"`
 }
 
 func (token *Token) GetAutoGroups() ([]string, error) {
@@ -318,7 +320,7 @@ func (token *Token) Update() (err error) {
 	}
 	return DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
 		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups",
-		"allow_user_quota_query").Updates(token).Error
+		"allow_user_quota_query", "force_claude_1h_cache").Updates(token).Error
 }
 
 func (token *Token) SelectUpdate() (err error) {

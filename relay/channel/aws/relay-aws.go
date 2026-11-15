@@ -199,7 +199,7 @@ func buildAwsRequestBody(c *gin.Context, info *relaycommon.RelayInfo, awsClaudeR
 				return nil, errors.Wrap(err, "pass-through unmarshal request body fail")
 			}
 		}
-		return data.Bytes(), nil
+		return relaycommon.ForceClaude1hCache(data.Bytes(), info)
 	}
 	return common.Marshal(awsClaudeReq)
 }
