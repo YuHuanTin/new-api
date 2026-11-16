@@ -1,6 +1,9 @@
 package mistral
 
 import (
+	"slices"
+	"strings"
+
 	"github.com/MoeForge/moego/regexp"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -56,6 +59,18 @@ func requestOpenAI2Mistral(request *dto.GeneralOpenAIRequest) (*dto.GeneralOpenA
 			content, err := mistralThinkingContent(message)
 			if err != nil {
 				return nil, err
+			}
+			if blocks, ok := content.([]mistralContentBlock); ok && message.Role == "assistant" && strings.HasPrefix(request.Model, "deepseek-") {
+				// 托管 DS 要求思考先于正文，保留同类块的原始顺序
+				slices.SortStableFunc(blocks, func(a, b mistralContentBlock) int {
+					if a.Type == b.Type {
+						return 0
+					}
+					if a.Type == "thinking" {
+						return -1
+					}
+					return 1
+				})
 			}
 			message.SetNullContent()
 			message.Content = content

@@ -850,6 +850,63 @@ func TestMistralThinkingReplayAcrossProtocols(t *testing.T) {
 	}
 }
 
+func TestMistralThinkingOrderAcrossProtocols(t *testing.T) {
+	for _, tc := range []struct {
+		format types.RelayFormat
+		body   string
+		before string
+		after  string
+	}{
+		{
+			format: types.RelayFormatOpenAI,
+			body:   `{"model":%q,"messages":[{"role":"user","content":"q"},{"role":"assistant","content":[{"type":"text","text":"hello"},{"type":"thinking","thinking":[{"type":"text","text":"plan"}],"signature":"native-signature","closed":true},{"type":"text","text":"after"},{"type":"thinking","thinking":[{"type":"text","text":"finish"}],"closed":false}],"tool_calls":[{"id":"abcdef123","type":"function","function":{"name":"lookup","arguments":"{}"}}]},{"role":"tool","tool_call_id":"abcdef123","content":"result"}]}`,
+			before: `[{"type":"text","text":"hello"},{"type":"thinking","thinking":[{"type":"text","text":"plan"}],"signature":"native-signature","closed":true},{"type":"text","text":"after"},{"type":"thinking","thinking":[{"type":"text","text":"finish"}],"closed":false}]`,
+			after:  `[{"type":"thinking","thinking":[{"type":"text","text":"plan"}],"signature":"native-signature","closed":true},{"type":"thinking","thinking":[{"type":"text","text":"finish"}],"closed":false},{"type":"text","text":"hello"},{"type":"text","text":"after"}]`,
+		},
+		{
+			format: types.RelayFormatClaude,
+			body:   `{"model":%q,"max_tokens":128,"messages":[{"role":"user","content":"q"},{"role":"assistant","content":[{"type":"text","text":"hello"},{"type":"thinking","thinking":"plan"},{"type":"text","text":"after"},{"type":"thinking","thinking":"finish"},{"type":"tool_use","id":"abcdef123","name":"lookup","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"abcdef123","content":"result"}]}]}`,
+			before: `[{"type":"text","text":"hello"},{"type":"thinking","thinking":[{"type":"text","text":"plan"}]},{"type":"text","text":"after"},{"type":"thinking","thinking":[{"type":"text","text":"finish"}]}]`,
+			after:  `[{"type":"thinking","thinking":[{"type":"text","text":"plan"}]},{"type":"thinking","thinking":[{"type":"text","text":"finish"}]},{"type":"text","text":"hello"},{"type":"text","text":"after"}]`,
+		},
+		{
+			format: types.RelayFormatOpenAIResponses,
+			body:   `{"model":%q,"input":[{"role":"user","content":"q"},{"role":"assistant","content":"hello"},{"type":"reasoning","summary":[{"type":"summary_text","text":"plan"}]},{"role":"assistant","content":"after"},{"type":"reasoning","content":[{"type":"reasoning_text","text":"finish"}]},{"type":"function_call","call_id":"abcdef123","name":"lookup","arguments":"{}"},{"type":"function_call_output","call_id":"abcdef123","output":"result"}]}`,
+			before: `[{"type":"text","text":"hello"},{"type":"thinking","thinking":[{"type":"text","text":"plan"}]},{"type":"text","text":"after"},{"type":"thinking","thinking":[{"type":"text","text":"finish"}]}]`,
+			after:  `[{"type":"thinking","thinking":[{"type":"text","text":"plan"}]},{"type":"thinking","thinking":[{"type":"text","text":"finish"}]},{"type":"text","text":"hello"},{"type":"text","text":"after"}]`,
+		},
+	} {
+		for _, model := range []struct {
+			name          string
+			thinkingFirst bool
+		}{
+			{name: "deepseek-v4-1-flash-1017", thinkingFirst: true},
+			{name: "deepseek-chat", thinkingFirst: true},
+			{name: "deepseek"},
+			{name: "mistral-small-latest"},
+			{name: "mistral-large-latest"},
+		} {
+			t.Run(model.name+"/"+string(tc.format), func(t *testing.T) {
+				converted, _ := convertMistralRequestForTest(t, tc.format, fmt.Sprintf(tc.body, model.name))
+				require.Len(t, converted.Messages, 3)
+				content, err := common.Marshal(converted.Messages[1].Content)
+				require.NoError(t, err)
+				want := tc.before
+				if model.thinkingFirst {
+					want = tc.after
+				}
+				assert.JSONEq(t, want, string(content))
+				calls := converted.Messages[1].ParseToolCalls()
+				require.Len(t, calls, 1)
+				assert.Equal(t, "abcdef123", calls[0].ID)
+				assert.Equal(t, calls[0].ID, converted.Messages[2].ToolCallId)
+				assert.Equal(t, "lookup", calls[0].Function.Name)
+				assert.Equal(t, "{}", calls[0].Function.Arguments)
+			})
+		}
+	}
+}
+
 func TestMistralNativeThinkingReplay(t *testing.T) {
 	converted, _ := convertMistralRequestForTest(t, types.RelayFormatOpenAI, `{"model":"mistral-large-latest","messages":[{"role":"system","content":[{"type":"text","text":"rules"},{"type":"thinking","thinking":[{"type":"text","text":"instructions"}]}]},{"role":"assistant","reasoning_content":"duplicate","content":[{"type":"text","text":"before"},{"type":"thinking","thinking":[{"type":"text","text":"plan"},{"type":"reference","reference_ids":[1]},{"type":"tool_reference","tool":"lookup","title":"Lookup"}],"signature":"mistral-signature","closed":true},{"type":"text","text":"after"}]},{"role":"assistant","reasoning_content":" [reasoning unavailable] ","content":"answer"},{"role":"user","content":"[reasoning unavailable]"}]}`)
 	system, err := common.Marshal(converted.Messages[0].Content)
