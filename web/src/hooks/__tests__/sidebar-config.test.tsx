@@ -207,7 +207,7 @@ describe('audit log sidebar entry', () => {
 })
 
 describe('pricing sidebar shortcuts', () => {
-  it('places model and group pricing after Plugins and marks them super-admin-only', () => {
+  it('places request processing before model and group pricing and marks them super-admin-only', () => {
     const { result } = sidebarFor()
     const items =
       result.current.find((group) => group.id === 'admin')?.items ?? []
@@ -216,6 +216,11 @@ describe('pricing sidebar shortcuts', () => {
     expect(items.slice(pluginsIndex, pluginsIndex + 5)).toEqual([
       expect.objectContaining({ title: 'Plugins' }),
       expect.objectContaining({
+        title: 'Request processing',
+        url: '/request-processing',
+        requiredRole: ROLE.SUPER_ADMIN,
+      }),
+      expect.objectContaining({
         title: 'Model Pricing',
         url: '/system-settings/billing/model-pricing',
         requiredRole: ROLE.SUPER_ADMIN,
@@ -223,11 +228,6 @@ describe('pricing sidebar shortcuts', () => {
       expect.objectContaining({
         title: 'Group Pricing',
         url: '/system-settings/billing/group-pricing',
-        requiredRole: ROLE.SUPER_ADMIN,
-      }),
-      expect.objectContaining({
-        title: 'Request processing',
-        url: '/request-processing',
         requiredRole: ROLE.SUPER_ADMIN,
       }),
       expect.objectContaining({ title: 'System Settings' }),

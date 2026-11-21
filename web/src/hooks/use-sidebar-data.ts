@@ -180,6 +180,12 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             requiredRole: ROLE.SUPER_ADMIN,
           },
           {
+            title: t('Request processing'),
+            url: '/request-processing',
+            icon: Workflow,
+            requiredRole: ROLE.SUPER_ADMIN,
+          },
+          {
             title: t('Model Pricing'),
             url: '/system-settings/billing/model-pricing',
             icon: DollarSign,
@@ -194,12 +200,6 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             requiredRole: ROLE.SUPER_ADMIN,
             className:
               'ring-1 ring-primary/40 hover:ring-primary/70 data-active:ring-primary',
-          },
-          {
-            title: t('Request processing'),
-            url: '/request-processing',
-            icon: Workflow,
-            requiredRole: ROLE.SUPER_ADMIN,
           },
           {
             title: t('System Settings'),
