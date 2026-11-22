@@ -6,13 +6,12 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/tiktoken-go/tokenizer"
 	"github.com/tiktoken-go/tokenizer/codec"
 )
 
 var (
-	o200kBase  = sync.OnceValue(func() tokenizer.Codec { return codec.NewO200kBase() })
-	cl100kBase = sync.OnceValue(func() tokenizer.Codec { return codec.NewCl100kBase() })
+	o200kBase  = sync.OnceValue(func() *bpeCounter { return newBPECounter(codec.NewO200kBase(), 200000, true) })
+	cl100kBase = sync.OnceValue(func() *bpeCounter { return newBPECounter(codec.NewCl100kBase(), 100256, false) })
 )
 
 // maxRunBytes bounds a run of letters, whitespace, or symbols passed to the
@@ -46,13 +45,11 @@ func Count(model, text string) int {
 			continue
 		}
 		if class != runNumber && i-runStart >= maxRunBytes {
-			n, _ := encoder.Count(text[start:i])
-			total += n
+			total += encoder.count(text[start:i])
 			start, runStart = i, i
 		}
 	}
-	n, _ := encoder.Count(text[start:])
-	return total + n
+	return total + encoder.count(text[start:])
 }
 
 type runClass int
