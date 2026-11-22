@@ -23,6 +23,9 @@ import (
 const KeyRequestBody = "key_request_body"
 const KeyBodyStorage = "key_body_storage"
 
+// 记录实际读取到的请求体字节数，避免 BodyStorage 清理后访问日志拿不到大小
+const KeyRequestBodySize = "key_request_body_size"
+
 // 临时调试用：LOCAL_DEBUG=1 时保存本次请求的上游抓包对象
 const LocalDebugUpstreamKey = "local_debug_upstream"
 const keyBodyReadError = "key_body_read_error"
@@ -60,6 +63,7 @@ func GetRequestBody(c *gin.Context) (io.Seeker, error) {
 				return nil, err
 			}
 			c.Set(KeyBodyStorage, bs)
+			c.Set(KeyRequestBodySize, bs.Size())
 			return bs, nil
 		}
 	}
@@ -90,8 +94,9 @@ func GetRequestBody(c *gin.Context) (io.Seeker, error) {
 		return nil, err
 	}
 
-	// 缓存存储对象
+	// 缓存存储对象并记录实际读取的请求体大小
 	c.Set(KeyBodyStorage, storage)
+	c.Set(KeyRequestBodySize, storage.Size())
 
 	return storage, nil
 }
@@ -113,6 +118,9 @@ func GetBodyStorage(c *gin.Context) (BodyStorage, error) {
 func CleanupBodyStorage(c *gin.Context) {
 	if storage, exists := c.Get(KeyBodyStorage); exists && storage != nil {
 		if bs, ok := storage.(BodyStorage); ok {
+			if _, recorded := c.Get(KeyRequestBodySize); !recorded {
+				c.Set(KeyRequestBodySize, bs.Size())
+			}
 			bs.Close()
 		}
 		c.Set(KeyBodyStorage, nil)

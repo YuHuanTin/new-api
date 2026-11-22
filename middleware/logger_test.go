@@ -131,3 +131,74 @@ func TestSetUpLoggerOmitsQueryCredentialsTakenOutByHandlers(t *testing.T) {
 		})
 	}
 }
+
+func TestSetUpLoggerLogsRequestSize(t *testing.T) {
+	previousMode, previousWriter := gin.Mode(), gin.DefaultWriter
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() {
+		gin.SetMode(previousMode)
+		gin.DefaultWriter = previousWriter
+	})
+
+	for _, tc := range []struct {
+		name          string
+		method        string
+		body          []byte
+		contentLength int64
+		readBody      bool
+		wantSizeCol   string
+	}{
+		{
+			name:          "empty GET request",
+			method:        http.MethodGet,
+			contentLength: 0,
+			wantSizeCol:   "|        0B |",
+		},
+		{
+			name:          "fixed content-length without reading body",
+			method:        http.MethodPost,
+			body:          bytes.Repeat([]byte("a"), 2048),
+			contentLength: 2048,
+			wantSizeCol:   "|    2.00KB |",
+		},
+		{
+			name:          "chunked body read via BodyStorage and cleaned up",
+			method:        http.MethodPost,
+			body:          bytes.Repeat([]byte("b"), 1<<20),
+			contentLength: -1,
+			readBody:      true,
+			wantSizeCol:   "|    1.00MB |",
+		},
+		{
+			name:          "unknown chunked size when body not read",
+			method:        http.MethodPost,
+			body:          []byte("unread"),
+			contentLength: -1,
+			wantSizeCol:   "|         - |",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var output bytes.Buffer
+			gin.DefaultWriter = &output
+			router := gin.New()
+			SetUpLogger(router)
+			router.Use(BodyStorageCleanup())
+			router.Handle(tc.method, "/v1/chat/completions", func(c *gin.Context) {
+				if tc.readBody {
+					bs, err := common.GetBodyStorage(c)
+					require.NoError(t, err)
+					require.Equal(t, int64(len(tc.body)), bs.Size())
+				}
+				c.Status(http.StatusOK)
+			})
+
+			req := httptest.NewRequest(tc.method, "/v1/chat/completions", bytes.NewReader(tc.body))
+			req.ContentLength = tc.contentLength
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			require.Equal(t, http.StatusOK, resp.Code)
+			assert.Contains(t, output.String(), tc.wantSizeCol)
+		})
+	}
+}

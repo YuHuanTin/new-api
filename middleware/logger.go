@@ -45,13 +45,37 @@ func SetUpLogger(server *gin.Engine) {
 				// with ?key=.
 				path = param.Request.URL.Path
 			}
-			return fmt.Sprintf("[GIN] %s | %s | %s | %3d | %13v | %15s | %7s %s\n",
+			// 优先使用实际读取到的请求体大小（兼容 chunked 及解压后场景），否则回退到 Content-Length
+			reqSizeBytes := int64(-1)
+			if param.Keys != nil {
+				if size, ok := param.Keys[common.KeyRequestBodySize].(int64); ok && size >= 0 {
+					reqSizeBytes = size
+				}
+			}
+			if reqSizeBytes < 0 && param.Request != nil && param.Request.ContentLength >= 0 {
+				reqSizeBytes = param.Request.ContentLength
+			}
+			var reqSize string
+			switch {
+			case reqSizeBytes < 0:
+				reqSize = "-"
+			case reqSizeBytes >= 1<<30:
+				reqSize = fmt.Sprintf("%.2fGB", float64(reqSizeBytes)/(1<<30))
+			case reqSizeBytes >= 1<<20:
+				reqSize = fmt.Sprintf("%.2fMB", float64(reqSizeBytes)/(1<<20))
+			case reqSizeBytes >= 1<<10:
+				reqSize = fmt.Sprintf("%.2fKB", float64(reqSizeBytes)/(1<<10))
+			default:
+				reqSize = fmt.Sprintf("%dB", reqSizeBytes)
+			}
+			return fmt.Sprintf("[GIN] %s | %s | %s | %3d | %13v | %15s | %9s | %7s %s\n",
 				param.TimeStamp.Format("2006/01/02 - 15:04:05"),
 				tag,
 				requestID,
 				param.StatusCode,
 				param.Latency,
 				param.ClientIP,
+				reqSize,
 				param.Method,
 				path,
 			)
