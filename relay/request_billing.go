@@ -36,11 +36,11 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo) *types.N
 		}
 	}
 
+	// EstimateRequestToken 内部已设置 info 的入口预估 token 及延迟精确分词回调
 	tokens, err := service.EstimateRequestToken(c, meta, info)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeCountTokenFailed)
 	}
-	info.SetEstimatePromptTokens(tokens)
 
 	priceData, err := helper.ModelPriceHelper(c, info, tokens, meta)
 	if err != nil {

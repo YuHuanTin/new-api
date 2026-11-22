@@ -78,7 +78,8 @@ type ChannelMeta struct {
 
 type TokenCountMeta struct {
 	//promptTokens int
-	estimatePromptTokens int
+	estimatePromptTokens         int
+	estimatePromptTokensResolver func() int // 延迟精确分词回调，仅在上游未返回 usage 需要本地兜底时触发一次
 }
 
 type RelayInfo struct {
@@ -858,11 +859,27 @@ func (info *RelayInfo) SetEstimatePromptTokens(promptTokens int) {
 		return
 	}
 	info.estimatePromptTokens = promptTokens
+	info.estimatePromptTokensResolver = nil
+}
+
+// SetEstimatePromptTokensWithResolver 设置入口预估 token，并注册延迟精确分词回调；
+// 仅在兜底计费调用 GetEstimatePromptTokens 时触发一次，常规有上游 usage 的请求不执行。
+func (info *RelayInfo) SetEstimatePromptTokensWithResolver(promptTokens int, resolver func() int) {
+	if info == nil {
+		return
+	}
+	info.estimatePromptTokens = promptTokens
+	info.estimatePromptTokensResolver = resolver
 }
 
 func (info *RelayInfo) GetEstimatePromptTokens() int {
 	if info == nil {
 		return 0
+	}
+	if info.estimatePromptTokensResolver != nil {
+		resolver := info.estimatePromptTokensResolver
+		info.estimatePromptTokensResolver = nil
+		info.estimatePromptTokens = resolver()
 	}
 	return info.estimatePromptTokens
 }

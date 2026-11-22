@@ -48,20 +48,28 @@ func getImageToken(c *gin.Context, fileMeta *types.FileMeta, model string, strea
 func EstimateRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *relaycommon.RelayInfo) (int, error) {
 	// 是否统计token
 	if !constant.CountToken {
+		info.SetEstimatePromptTokens(0)
 		return 0, nil
 	}
-	return CountRequestToken(c, meta, info)
+	return countRequestToken(c, meta, info, false)
 }
 
 // CountRequestToken counts request tokens regardless of the billing estimation
 // switch. Utility endpoints such as Claude's messages/count_tokens must remain
 // available even when operators disable request-token estimation for relays.
 func CountRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *relaycommon.RelayInfo) (int, error) {
+	return countRequestToken(c, meta, info, true)
+}
+
+func countRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *relaycommon.RelayInfo, exact bool) (int, error) {
 	if meta == nil {
 		return 0, errors.New("token count meta is nil")
 	}
 
 	if info.RelayFormat == types.RelayFormatOpenAIRealtime {
+		if !exact {
+			info.SetEstimatePromptTokens(0)
+		}
 		return 0, nil
 	}
 	if info.RelayMode == constant2.RelayModeAudioTranscription || info.RelayMode == constant2.RelayModeAudioTranslation {
@@ -91,17 +99,28 @@ func CountRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *relayco
 			// 一分钟 1000 token，与 $price / minute 对齐。
 			totalAudioToken += common.QuotaRound(math.Ceil(duration) / 60.0 * 1000)
 		}
+		if !exact {
+			info.SetEstimatePromptTokens(totalAudioToken)
+		}
 		return totalAudioToken, nil
 	}
 
 	model := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
 	tkm := 0
+	textTokens := 0
+	usedFastEstimate := false
 
 	if meta.TokenType == types.TokenTypeTextNumber {
-		tkm += utf8.RuneCountInString(meta.CombineText)
+		textTokens = utf8.RuneCountInString(meta.CombineText)
+	} else if exact || tokenkit.ModelFamily(model) != tokenkit.FamilyOpenAI {
+		textTokens = tokenkit.Count(model, meta.CombineText)
 	} else {
-		tkm += tokenkit.Count(model, meta.CombineText)
+		// 入口预估阶段对 OpenAI 模型使用零分配启发式估算，避免热路径触发 tiktoken/regexp2 大量内存分配；
+		// 若上游未返回 usage，再通过延迟回调在兜底结算时按需执行精确分词。
+		textTokens = tokenkit.Estimate(model, meta.CombineText)
+		usedFastEstimate = meta.CombineText != ""
 	}
+	tkm += textTokens
 
 	if info.RelayFormat == types.RelayFormatOpenAI {
 		tkm += meta.ToolsCount * 8
@@ -168,6 +187,24 @@ func CountRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *relayco
 	}
 
 	common.SetContextKey(c, constant.ContextKeyPromptTokens, tkm)
+	if !exact && info != nil {
+		if usedFastEstimate && info.Request != nil {
+			// 不捕获 meta.CombineText，避免大文本常驻内存；仅在兜底读取 GetEstimatePromptTokens 时按需精确分词
+			req := info.Request
+			nonTextTokens := tkm - textTokens
+			info.SetEstimatePromptTokensWithResolver(tkm, func() int {
+				exactMeta := req.GetTokenCountMeta()
+				if exactMeta == nil {
+					return tkm
+				}
+				exactTotal := tokenkit.Count(model, exactMeta.CombineText) + nonTextTokens
+				common.SetContextKey(c, constant.ContextKeyPromptTokens, exactTotal)
+				return exactTotal
+			})
+		} else {
+			info.SetEstimatePromptTokens(tkm)
+		}
+	}
 	return tkm, nil
 }
 
