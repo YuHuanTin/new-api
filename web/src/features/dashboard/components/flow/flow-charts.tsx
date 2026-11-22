@@ -95,6 +95,7 @@ import { cn } from '@/lib/utils'
 import { VCHART_OPTION } from '@/lib/vchart'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { ChannelProfitCalculator } from './channel-profit-calculator'
 import { FlowNodeFilterControl } from './flow-node-filter'
 
 interface FlowChartsProps {
@@ -740,6 +741,15 @@ export function FlowCharts(props: FlowChartsProps) {
           {chartContent}
         </div>
       </div>
+
+      {isAdmin && !isLoading && !isError && (
+        <ChannelProfitCalculator
+          rows={flowRows ?? []}
+          selectedUsers={selectedUsers}
+          rangeKey={`${timeRange.start}_${timeRange.end}`}
+          maskSensitive={maskSensitive}
+        />
+      )}
     </div>
   )
 }
