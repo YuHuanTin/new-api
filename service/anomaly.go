@@ -94,8 +94,9 @@ func (t *upstreamCaptureTransport) RoundTrip(original *http.Request) (*http.Resp
 		},
 	}
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+	reqExpectedBytes := captureExpectedBytes(req.ContentLength)
 	if req.Body != nil && req.Body != http.NoBody {
-		req.Body = &upstreamCaptureBody{ReadCloser: req.Body, capture: capture, trailers: req.Trailer}
+		req.Body = &upstreamCaptureBody{ReadCloser: req.Body, capture: capture, trailers: req.Trailer, expectedBytes: reqExpectedBytes}
 	}
 	if original.GetBody != nil {
 		req.GetBody = func() (io.ReadCloser, error) {
@@ -103,7 +104,7 @@ func (t *upstreamCaptureTransport) RoundTrip(original *http.Request) (*http.Resp
 			if err != nil {
 				return nil, err
 			}
-			return &upstreamCaptureBody{ReadCloser: body, capture: capture, trailers: req.Trailer}, nil
+			return &upstreamCaptureBody{ReadCloser: body, capture: capture, trailers: req.Trailer, expectedBytes: reqExpectedBytes}, nil
 		}
 	}
 	resp, err := t.base.RoundTrip(req)
@@ -129,7 +130,13 @@ func (t *upstreamCaptureTransport) RoundTrip(original *http.Request) (*http.Resp
 	}
 	capture.mu.Unlock()
 	if resp.Body != nil && resp.Body != http.NoBody {
-		resp.Body = &upstreamCaptureBody{ReadCloser: resp.Body, capture: capture, response: true, trailers: resp.Trailer}
+		resp.Body = &upstreamCaptureBody{
+			ReadCloser:    resp.Body,
+			capture:       capture,
+			response:      true,
+			trailers:      resp.Trailer,
+			expectedBytes: captureExpectedBytes(resp.ContentLength),
+		}
 	}
 	if addedGzip && strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip") {
 		resp.Body = &upstreamGzipBody{ReadCloser: resp.Body}
@@ -170,12 +177,20 @@ func (b *upstreamGzipBody) Read(p []byte) (int, error) {
 	return b.reader.Read(p)
 }
 
+func captureExpectedBytes(contentLength int64) int {
+	if contentLength <= 0 {
+		return 0
+	}
+	return int(min(contentLength, anomalyMaxRawBytes))
+}
+
 type upstreamCaptureBody struct {
 	io.ReadCloser
-	capture  *upstreamCapture
-	response bool
-	trailers http.Header
-	closing  bool // 由 capture.mu 保护，仅记录当前正文的主动关闭状态。
+	capture       *upstreamCapture
+	response      bool
+	trailers      http.Header
+	expectedBytes int
+	closing       bool // 由 capture.mu 保护，仅记录当前正文的主动关闭状态。
 }
 
 func (b *upstreamCaptureBody) Close() error {
@@ -220,6 +235,16 @@ func (b *upstreamCaptureBody) Read(p []byte) (int, error) {
 		available = max(0, anomalyMaxRawBytes-len(b.capture.requestBody)-len(b.capture.responseBody))
 	}
 	take := min(n, available)
+	if take > 0 && cap(*body) == 0 && b.expectedBytes > 0 {
+		// 已知 Content-Length 时按抓包上限内长度一次预分配，避免大包触发 append 倍增扩容拷贝。
+		maxCap := anomalyMaxRawBytes - len(b.capture.responseBody)
+		if b.response {
+			maxCap = anomalyMaxRawBytes
+		}
+		if capHint := min(max(take, b.expectedBytes), max(0, maxCap)); capHint > 0 {
+			*body = make([]byte, 0, capHint)
+		}
+	}
 	*body = append(*body, p[:take]...)
 	if take < n {
 		*truncated = true

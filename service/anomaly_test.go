@@ -468,3 +468,94 @@ func TestSSECapturePreservesUpstreamPayloadFormats(t *testing.T) {
 		})
 	}
 }
+
+func TestUpstreamCapturePreallocatesKnownContentLength(t *testing.T) {
+	t.Run("exact request and fixed response lengths avoid slice growth", func(t *testing.T) {
+		reqPayload := bytes.Repeat([]byte("a"), 256<<10)
+		respPayload := bytes.Repeat([]byte("b"), 192<<10)
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotReq, err := io.ReadAll(r.Body)
+			require.NoError(t, err)
+			assert.Equal(t, reqPayload, gotReq)
+			w.Header().Set("Content-Length", fmt.Sprint(len(respPayload)))
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write(respPayload)
+		}))
+		defer server.Close()
+
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		client := WithUpstreamCapture(c, server.Client())
+		req, err := http.NewRequest(http.MethodPost, server.URL, bytes.NewReader(reqPayload))
+		require.NoError(t, err)
+
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		gotResp, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		assert.Equal(t, respPayload, gotResp)
+
+		value, ok := c.Get(anomalyCaptureKey)
+		require.True(t, ok)
+		capture := value.(*upstreamCapture)
+		capture.mu.Lock()
+		assert.Equal(t, len(reqPayload), cap(capture.requestBody))
+		assert.Equal(t, reqPayload, capture.requestBody)
+		assert.Equal(t, len(respPayload), cap(capture.responseBody))
+		assert.Equal(t, respPayload, capture.responseBody)
+		capture.mu.Unlock()
+	})
+
+	t.Run("oversized ContentLength caps preallocation at anomalyMaxRawBytes", func(t *testing.T) {
+		payload := bytes.Repeat([]byte("x"), anomalyMaxRawBytes+4096)
+		capture := &upstreamCapture{}
+		body := &upstreamCaptureBody{
+			ReadCloser:    io.NopCloser(bytes.NewReader(payload)),
+			capture:       capture,
+			expectedBytes: captureExpectedBytes(int64(len(payload))),
+		}
+		buf := make([]byte, 32<<10)
+		var firstPtr *byte
+		var total int
+		for {
+			n, err := body.Read(buf)
+			if n > 0 && firstPtr == nil {
+				firstPtr = &capture.requestBody[0]
+				assert.Equal(t, anomalyMaxRawBytes, cap(capture.requestBody))
+			}
+			total += n
+			if err == io.EOF {
+				break
+			}
+			require.NoError(t, err)
+		}
+		assert.Equal(t, len(payload), total, "抓包上限不能截断上游读取")
+		assert.Equal(t, anomalyMaxRawBytes, len(capture.requestBody))
+		assert.Equal(t, anomalyMaxRawBytes, cap(capture.requestBody))
+		assert.Same(t, firstPtr, &capture.requestBody[0], "预分配后不应发生再次扩容重分配")
+		assert.True(t, capture.requestTruncated)
+	})
+
+	t.Run("understated or empty ContentLength handles edge cases safely", func(t *testing.T) {
+		capture := &upstreamCapture{}
+		understated := &upstreamCaptureBody{
+			ReadCloser:    io.NopCloser(strings.NewReader(strings.Repeat("y", 512))),
+			capture:       capture,
+			expectedBytes: captureExpectedBytes(64),
+		}
+		_, err := io.Copy(io.Discard, understated)
+		require.NoError(t, err)
+		assert.Equal(t, 512, len(capture.requestBody))
+
+		emptyCapture := &upstreamCapture{}
+		emptyBody := &upstreamCaptureBody{
+			ReadCloser:    io.NopCloser(strings.NewReader("")),
+			capture:       emptyCapture,
+			expectedBytes: captureExpectedBytes(0),
+		}
+		_, err = io.Copy(io.Discard, emptyBody)
+		require.NoError(t, err)
+		assert.Nil(t, emptyCapture.requestBody)
+	})
+}
