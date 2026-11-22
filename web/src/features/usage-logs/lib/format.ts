@@ -27,7 +27,7 @@ import {
 import { translateServerText } from '@/lib/server-error-message'
 
 import type { UsageLog } from '../data/schema'
-import type { LogOtherData } from '../types'
+import { USAGE_BILLING_PATH, type LogOtherData } from '../types'
 import { buildQuotaAuditOperation } from './quota-audit-operation'
 
 export { normalizeTierLabel }
@@ -154,6 +154,21 @@ export function hasToolSurcharge(other: LogOtherData | null): boolean {
     other.image_generation_call === true &&
     isPositiveFiniteNumber(other.image_generation_call_price)
   )
+}
+
+const ESTIMATED_BILLING_PATHS = new Set<string>([
+  USAGE_BILLING_PATH.LOCAL,
+  USAGE_BILLING_PATH.OPENAI_ESTIMATED,
+  USAGE_BILLING_PATH.ANTHROPIC_ESTIMATED,
+  USAGE_BILLING_PATH.GEMINI_ESTIMATED,
+])
+
+/** 判断计费是否因上游未返回完整 usage 而回退到本地 token 估算/计数 */
+export function isEstimatedBillingUsage(other: LogOtherData | null): boolean {
+  const path = other?.admin_info?.usage_billing_path
+  return path
+    ? ESTIMATED_BILLING_PATHS.has(path)
+    : other?.admin_info?.local_count_tokens === true
 }
 
 /**

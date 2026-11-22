@@ -29,9 +29,15 @@ import {
   test,
 } from 'vitest'
 
+import en from '@/i18n/locales/en.json'
+import zh from '@/i18n/locales/zh.json'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
+import { USAGE_BILLING_PATH } from '../../types'
 import { LogCostDisplay } from '../log-cost-display'
+
+const ESTIMATED_BILLING_LABEL =
+  'Billed using local token estimation (incomplete upstream usage)'
 
 function renderCost(
   props: React.ComponentProps<typeof LogCostDisplay>
@@ -45,6 +51,7 @@ describe('log cost display', () => {
       Subscription: 'Subscription',
       Wallet: 'Wallet',
       'Includes tool-call surcharge': 'Includes tool-call surcharge',
+      [ESTIMATED_BILLING_LABEL]: en.translation[ESTIMATED_BILLING_LABEL],
     })
   })
 
@@ -115,7 +122,9 @@ describe('log cost display', () => {
 
     expect(screen.getByText('$0.025')).toBeVisible()
     expect(screen.getByRole('img', { name: 'Subscription' })).toBeVisible()
-    expect(screen.queryByRole('img', { name: 'Wallet' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('img', { name: 'Wallet' })
+    ).not.toBeInTheDocument()
   })
 
   test('keeps legacy cost visible without inventing a funding source', () => {
@@ -229,5 +238,80 @@ describe('log cost display', () => {
     expect(
       screen.getByRole('img', { name: 'Includes tool-call surcharge' })
     ).toHaveAttribute('data-tool-surcharge-indicator', 'true')
+  })
+
+  test.each([
+    [{ usage_billing_path: USAGE_BILLING_PATH.LOCAL }, true],
+    [{ usage_billing_path: USAGE_BILLING_PATH.OPENAI_ESTIMATED }, true],
+    [{ usage_billing_path: USAGE_BILLING_PATH.ANTHROPIC_ESTIMATED }, true],
+    [{ usage_billing_path: USAGE_BILLING_PATH.GEMINI_ESTIMATED }, true],
+    [{ local_count_tokens: true }, true],
+    [{ usage_billing_path: USAGE_BILLING_PATH.UPSTREAM }, false],
+    [
+      {
+        usage_billing_path: USAGE_BILLING_PATH.OPENAI,
+        local_count_tokens: true,
+      },
+      false,
+    ],
+  ] as const)(
+    'shows estimated billing warning when applicable (%#)',
+    (adminInfo, expected) => {
+      expect(zh.translation[ESTIMATED_BILLING_LABEL]).toBeTruthy()
+      renderCost({
+        quota: 10045,
+        other: { admin_info: adminInfo },
+        showEstimatedBilling: true,
+      })
+
+      const marker = screen.queryByRole('img', {
+        name: ESTIMATED_BILLING_LABEL,
+      })
+      if (expected) {
+        expect(marker).toBeVisible()
+        expect(marker).toHaveAttribute(
+          'data-estimated-billing-indicator',
+          'true'
+        )
+        expect(marker).toHaveAttribute('tabindex', '0')
+      } else {
+        expect(marker).not.toBeInTheDocument()
+      }
+    }
+  )
+
+  test('respects showEstimatedBilling gate, tooltip interaction, and surcharge coexistence', async () => {
+    const user = userEvent.setup()
+    const baseOther = {
+      admin_info: { usage_billing_path: USAGE_BILLING_PATH.LOCAL },
+      tool_surcharges: [{ name: 'web_search', count: 1, price: 2 }],
+    }
+
+    const { rerender } = renderCost({ quota: 10045, other: baseOther })
+    expect(
+      screen.queryByRole('img', { name: ESTIMATED_BILLING_LABEL })
+    ).not.toBeInTheDocument()
+
+    rerender(
+      <LogCostDisplay quota={10045} other={baseOther} showEstimatedBilling />
+    )
+    const warningMarker = screen.getByRole('img', {
+      name: ESTIMATED_BILLING_LABEL,
+    })
+    expect(
+      screen.getByRole('img', { name: 'Includes tool-call surcharge' })
+    ).toBeVisible()
+
+    await user.hover(warningMarker)
+    expect(await screen.findByText(ESTIMATED_BILLING_LABEL)).toBeVisible()
+    await user.unhover(warningMarker)
+    await waitFor(() =>
+      expect(
+        screen.queryByText(ESTIMATED_BILLING_LABEL)
+      ).not.toBeInTheDocument()
+    )
+    await user.tab()
+    expect(warningMarker).toHaveFocus()
+    expect(await screen.findByText(ESTIMATED_BILLING_LABEL)).toBeVisible()
   })
 })

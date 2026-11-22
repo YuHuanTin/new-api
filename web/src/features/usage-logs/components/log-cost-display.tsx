@@ -17,11 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import {
+  Alert02Icon,
   CrownIcon,
   Wallet01Icon,
   Wrench01Icon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
@@ -34,19 +36,21 @@ import {
 } from '@/components/ui/tooltip'
 import { formatLogQuota } from '@/lib/format'
 
-import { hasToolSurcharge } from '../lib/format'
+import { hasToolSurcharge, isEstimatedBillingUsage } from '../lib/format'
 import type { LogOtherData } from '../types'
 
 interface LogCostDisplayProps {
   quota: number
   other: LogOtherData | null
   showBillingSource?: boolean
+  showEstimatedBilling?: boolean
 }
 
-function ToolSurchargeMarker() {
-  const { t } = useTranslation()
-  const label = t('Includes tool-call surcharge')
-
+function CostWarningBadge(props: {
+  label: string
+  indicator: 'estimated' | 'surcharge'
+  children: ReactNode
+}) {
   return (
     <Tooltip>
       <TooltipTrigger
@@ -55,25 +59,20 @@ function ToolSurchargeMarker() {
             variant='warning'
             className='h-5 min-w-5 cursor-help gap-0 rounded-full px-1'
             role='img'
-            aria-label={label}
+            aria-label={props.label}
             tabIndex={0}
-            data-tool-surcharge-indicator='true'
+            data-estimated-billing-indicator={
+              props.indicator === 'estimated' ? 'true' : undefined
+            }
+            data-tool-surcharge-indicator={
+              props.indicator === 'surcharge' ? 'true' : undefined
+            }
           >
-            <HugeiconsIcon
-              icon={Wrench01Icon}
-              strokeWidth={2}
-              aria-hidden='true'
-            />
-            <span
-              className='text-[9px] leading-none font-bold'
-              aria-hidden='true'
-            >
-              +
-            </span>
+            {props.children}
           </Badge>
         }
       />
-      <TooltipContent>{label}</TooltipContent>
+      <TooltipContent>{props.label}</TooltipContent>
     </Tooltip>
   )
 }
@@ -81,6 +80,8 @@ function ToolSurchargeMarker() {
 export function LogCostDisplay(props: LogCostDisplayProps) {
   const { t } = useTranslation()
   const isSubscription = props.other?.billing_source === 'subscription'
+  const showEstimatedBilling =
+    Boolean(props.showEstimatedBilling) && isEstimatedBillingUsage(props.other)
   const showToolSurcharge = hasToolSurcharge(props.other)
   const quota = isSubscription
     ? (props.other?.subscription_consumed ?? props.quota)
@@ -134,7 +135,38 @@ export function LogCostDisplay(props: LogCostDisplayProps) {
           ) : null}
           <span className='whitespace-nowrap'>{formatLogQuota(quota)}</span>
         </StatusBadge>
-        {showToolSurcharge ? <ToolSurchargeMarker /> : null}
+        {showEstimatedBilling ? (
+          <CostWarningBadge
+            label={t(
+              'Billed using local token estimation (incomplete upstream usage)'
+            )}
+            indicator='estimated'
+          >
+            <HugeiconsIcon
+              icon={Alert02Icon}
+              strokeWidth={2}
+              aria-hidden='true'
+            />
+          </CostWarningBadge>
+        ) : null}
+        {showToolSurcharge ? (
+          <CostWarningBadge
+            label={t('Includes tool-call surcharge')}
+            indicator='surcharge'
+          >
+            <HugeiconsIcon
+              icon={Wrench01Icon}
+              strokeWidth={2}
+              aria-hidden='true'
+            />
+            <span
+              className='text-[9px] leading-none font-bold'
+              aria-hidden='true'
+            >
+              +
+            </span>
+          </CostWarningBadge>
+        ) : null}
       </div>
     </TooltipProvider>
   )

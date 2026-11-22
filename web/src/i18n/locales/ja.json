@@ -950,6 +950,7 @@
     "Billed as default. No cell for this combination, so the base ratio of default applies — the 0.8 of vip plays no part.": "default として課金。この組み合わせのセルはないため default の基本倍率が適用され、vip 自身の 0.8 は関与しません。",
     "Billed as premium. The highlighted cell matches, so the override 0.3 applies.": "premium として課金。ハイライトされたセルに一致するため、上書き倍率 0.3 が適用されます。",
     "Billed per request": "リクエストごとに課金",
+    "Billed using local token estimation (incomplete upstream usage)": "ローカルのトークン推定で課金（上流の使用量情報が不完全）",
     "Billing": "請求",
     "Billing & Payment": "請求と支払い",
     "Billing currency": "請求通貨",

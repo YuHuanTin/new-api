@@ -950,6 +950,7 @@
     "Billed as default. No cell for this combination, so the base ratio of default applies — the 0.8 of vip plays no part.": "Тарифицируется по default. Ячейки для этой комбинации нет, поэтому применяется базовый коэффициент default — 0,8 группы vip не участвует.",
     "Billed as premium. The highlighted cell matches, so the override 0.3 applies.": "Тарифицируется по premium. Совпадает с выделенной ячейкой, поэтому применяется переопределение 0,3.",
     "Billed per request": "Тарификация за запрос",
+    "Billed using local token estimation (incomplete upstream usage)": "Расчёт по локальной оценке токенов (неполные данные usage от апстрима)",
     "Billing": "Биллинг",
     "Billing & Payment": "Биллинг и платежи",
     "Billing currency": "Валюта оплаты",

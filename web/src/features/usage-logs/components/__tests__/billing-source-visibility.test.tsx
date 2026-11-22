@@ -58,6 +58,8 @@ async function renderLogs(props: {
   activeSubscription: boolean
   quotas?: number[]
   models?: string[]
+  types?: number[]
+  others?: Array<Record<string, unknown>>
   readyText?: string
 }) {
   useAuthStore
@@ -67,19 +69,22 @@ async function renderLogs(props: {
   const recordCount = Math.max(
     sources.length,
     props.quotas?.length ?? 0,
-    props.models?.length ?? 0
+    props.models?.length ?? 0,
+    props.types?.length ?? 0,
+    props.others?.length ?? 0
   )
   const records = Array.from({ length: recordCount }, (_, index) =>
     usageLogSchema.parse({
       id: index + 1,
       user_id: 1,
       created_at: 1788840000,
-      type: 2,
+      type: props.types?.[index] ?? 2,
       content: '',
       model_name: props.models?.[index] ?? 'gpt-5.1',
       quota: props.quotas?.[index] ?? 5000,
       other: JSON.stringify({
         billing_source: sources[index % sources.length],
+        ...props.others?.[index],
       }),
     })
   )
@@ -263,4 +268,32 @@ test('cycles cost sorting on header clicks without refetching', async () => {
     screen.queryByRole('menuitem', { name: 'Desc' })
   ).not.toBeInTheDocument()
   expect(client.isFetching()).toBe(0)
+})
+
+test('shows estimated billing warning next to cost only in admin consume view', async () => {
+  const user = userEvent.setup()
+  const localAdminInfo = {
+    admin_info: { usage_billing_path: 'local', local_count_tokens: true },
+  }
+  const client = await renderLogs({
+    role: ROLE.ADMIN,
+    enabledPlans: [],
+    activeSubscription: false,
+    types: [2, 2, 5],
+    others: [
+      localAdminInfo,
+      { admin_info: { usage_billing_path: 'upstream' } },
+      localAdminInfo,
+    ],
+  })
+
+  const warningLabel =
+    'Billed using local token estimation (incomplete upstream usage)'
+  expect(screen.getAllByRole('img', { name: warningLabel })).toHaveLength(1)
+
+  await user.click(screen.getByRole('button', { name: 'Switch scope' }))
+  await waitFor(() => expect(client.isFetching()).toBe(0))
+  expect(
+    screen.queryByRole('img', { name: warningLabel })
+  ).not.toBeInTheDocument()
 })

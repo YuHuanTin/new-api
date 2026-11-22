@@ -950,6 +950,7 @@
     "Billed as default. No cell for this combination, so the base ratio of default applies — the 0.8 of vip plays no part.": "Facturé sous default. Aucune cellule pour cette combinaison, donc le taux de base de default s’applique — le 0,8 de vip ne joue aucun rôle.",
     "Billed as premium. The highlighted cell matches, so the override 0.3 applies.": "Facturé sous premium. La cellule surlignée correspond, donc le remplacement 0,3 s’applique.",
     "Billed per request": "Facturé par requête",
+    "Billed using local token estimation (incomplete upstream usage)": "Facturation par estimation locale des tokens (données amont incomplètes)",
     "Billing": "Facturation",
     "Billing & Payment": "Facturation et paiement",
     "Billing currency": "Devise de facturation",

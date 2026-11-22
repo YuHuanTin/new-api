@@ -950,6 +950,7 @@
     "Billed as default. No cell for this combination, so the base ratio of default applies — the 0.8 of vip plays no part.": "Tính phí theo default. Không có ô cho tổ hợp này, nên áp dụng hệ số cơ bản của default — 0.8 của vip không tham gia.",
     "Billed as premium. The highlighted cell matches, so the override 0.3 applies.": "Tính phí theo premium. Khớp ô được tô sáng, nên áp dụng hệ số ghi đè 0.3.",
     "Billed per request": "Tính phí theo lượt",
+    "Billed using local token estimation (incomplete upstream usage)": "Tính phí bằng ước lượng token cục bộ (thượng nguồn không trả về đủ usage)",
     "Billing": "Thanh toán",
     "Billing & Payment": "Thanh toán & chi phí",
     "Billing currency": "Loại tiền thanh toán",

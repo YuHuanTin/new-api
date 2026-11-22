@@ -950,6 +950,7 @@
     "Billed as default. No cell for this combination, so the base ratio of default applies — the 0.8 of vip plays no part.": "按 default 计费。矩阵中没有这个组合的格子，因此用 default 的基础倍率——vip 自己的 0.8 不参与。",
     "Billed as premium. The highlighted cell matches, so the override 0.3 applies.": "按 premium 计费。命中高亮的格子，因此使用覆盖倍率 0.3。",
     "Billed per request": "按次计费",
+    "Billed using local token estimation (incomplete upstream usage)": "本地估算 Token 计费（上游未返回完整计费信息）",
     "Billing": "计费",
     "Billing & Payment": "计费与支付",
     "Billing currency": "计费货币",

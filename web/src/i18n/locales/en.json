@@ -950,6 +950,7 @@
     "Billed as default. No cell for this combination, so the base ratio of default applies — the 0.8 of vip plays no part.": "Billed as default. No cell for this combination, so the base ratio of default applies — the 0.8 of vip plays no part.",
     "Billed as premium. The highlighted cell matches, so the override 0.3 applies.": "Billed as premium. The highlighted cell matches, so the override 0.3 applies.",
     "Billed per request": "Billed per request",
+    "Billed using local token estimation (incomplete upstream usage)": "Billed using local token estimation (incomplete upstream usage)",
     "Billing": "Billing",
     "Billing & Payment": "Billing & Payment",
     "Billing currency": "Billing currency",

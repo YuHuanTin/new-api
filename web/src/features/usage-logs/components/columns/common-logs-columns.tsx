@@ -822,11 +822,17 @@ export function useCommonLogsColumns(
 
           const quota = row.getValue('quota') as number
           const other = parseLogOther(log.other)
+          // 仅管理视角且非违规扣费的消费日志展示估算警告（admin_info 对普通用户已由后端剔除）
+          const showEstimatedBilling =
+            isAdmin &&
+            log.type === LOG_TYPE_ENUM.CONSUME &&
+            !isViolationFeeLog(other)
           return (
             <LogCostDisplay
               quota={quota}
               other={other}
               showBillingSource={showBillingSource}
+              showEstimatedBilling={showEstimatedBilling}
             />
           )
         },
@@ -921,7 +927,7 @@ export function useCommonLogsColumns(
 
           return (
             <>
-            <div className='flex max-w-[200px] items-center gap-1 max-sm:w-full max-sm:pr-5'>
+              <div className='flex max-w-[200px] items-center gap-1 max-sm:w-full max-sm:pr-5'>
                 <button
                   type='button'
                   data-log-details-trigger
@@ -931,7 +937,7 @@ export function useCommonLogsColumns(
                 >
                   {detailPreview}
                 </button>
-            </div>
+              </div>
               <DetailsDialog
                 log={log}
                 isAdmin={isAdmin}
