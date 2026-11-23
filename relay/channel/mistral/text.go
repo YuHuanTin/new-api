@@ -1,19 +1,52 @@
 package mistral
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/MoeForge/moego/regexp"
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 )
+
+const mistralToolCallIDChars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
 var mistralToolCallIdRegexp = regexp.MustCompile("^[a-zA-Z0-9]{9}$")
 
 func requestOpenAI2Mistral(request *dto.GeneralOpenAIRequest) (*dto.GeneralOpenAIRequest, error) {
 	messages := make([]dto.Message, 0, len(request.Messages))
 	idMap := make(map[string]string)
+	used := make(map[string]struct{})
+	rewriteToolCallID := func(orig string) string {
+		if mistralToolCallIdRegexp.MatchString(orig) {
+			used[orig] = struct{}{}
+			return orig
+		}
+		if mapped, ok := idMap[orig]; ok {
+			return mapped
+		}
+		for attempt := 0; ; attempt++ {
+			input := orig
+			if attempt > 0 {
+				input = orig + "#" + strconv.Itoa(attempt)
+			}
+			sum := sha256.Sum256([]byte(input))
+			val := binary.BigEndian.Uint64(sum[:8])
+			var buf [9]byte
+			for i := range buf {
+				buf[i] = mistralToolCallIDChars[val%62]
+				val /= 62
+			}
+			candidate := string(buf[:])
+			if _, exists := used[candidate]; !exists {
+				idMap[orig] = candidate
+				used[candidate] = struct{}{}
+				return candidate
+			}
+		}
+	}
 	for _, message := range request.Messages {
 		// Mistral 只接受 system/user/assistant/tool 四种角色
 		if message.Role == "developer" {
@@ -24,34 +57,14 @@ func requestOpenAI2Mistral(request *dto.GeneralOpenAIRequest) (*dto.GeneralOpenA
 		toolCalls := message.ParseToolCalls()
 		if toolCalls != nil {
 			for i := range toolCalls {
-				if !mistralToolCallIdRegexp.MatchString(toolCalls[i].ID) {
-					if newId, ok := idMap[toolCalls[i].ID]; ok {
-						toolCalls[i].ID = newId
-					} else {
-						newId, err := common.GenerateRandomCharsKey(9)
-						if err == nil {
-							idMap[toolCalls[i].ID] = newId
-							toolCalls[i].ID = newId
-						}
-					}
-				}
+				toolCalls[i].ID = rewriteToolCallID(toolCalls[i].ID)
 			}
 			message.SetToolCalls(toolCalls)
 		}
 
 		// 2. tool_call_id
 		if message.ToolCallId != "" {
-			if newId, ok := idMap[message.ToolCallId]; ok {
-				message.ToolCallId = newId
-			} else {
-				if !mistralToolCallIdRegexp.MatchString(message.ToolCallId) {
-					newId, err := common.GenerateRandomCharsKey(9)
-					if err == nil {
-						idMap[message.ToolCallId] = newId
-						message.ToolCallId = newId
-					}
-				}
-			}
+			message.ToolCallId = rewriteToolCallID(message.ToolCallId)
 		}
 
 		// 原生内容块必须在通用解析前保留，否则 thinking 会被丢弃

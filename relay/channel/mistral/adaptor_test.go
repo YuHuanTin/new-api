@@ -120,7 +120,7 @@ func TestConvertOpenAIRequestRejectsRequestWithoutMessages(t *testing.T) {
 	require.Error(t, err)
 }
 
-// Mistral 要求 tool call id 为 9 位字母数字，改写后 tool 消息必须引用同一个新 id
+// Mistral 要求 tool call id 为 9 位字母数字，改写后 tool 消息必须引用同一个新 id，且跨轮次映射保持稳定
 func TestRequestOpenAI2MistralRewritesToolCallId(t *testing.T) {
 	converted, err := requestOpenAI2Mistral(&dto.GeneralOpenAIRequest{Messages: []dto.Message{
 		{
@@ -135,6 +135,34 @@ func TestRequestOpenAI2MistralRewritesToolCallId(t *testing.T) {
 	newId := converted.Messages[0].ParseToolCalls()[0].ID
 	require.Regexp(t, mistralToolCallIdRegexp, newId)
 	require.Equal(t, newId, converted.Messages[1].ToolCallId)
+
+	// 后续轮次携带相同历史 ID、新增 ID 及已合规的 9 位 ID 时，历史映射必须完全一致
+	nextTurn, err := requestOpenAI2Mistral(&dto.GeneralOpenAIRequest{Messages: []dto.Message{
+		{
+			Role:      "assistant",
+			ToolCalls: []byte(`[{"id":"chatcmpl-tool-abc","type":"function","function":{"name":"Read","arguments":"{}"}}]`),
+		},
+		{Role: "tool", ToolCallId: "chatcmpl-tool-abc", Content: "ok"},
+		{
+			Role:      "assistant",
+			ToolCalls: []byte(`[{"id":"chatcmpl-tool-def","type":"function","function":{"name":"Bash","arguments":"{}"}},{"id":"Abc123XYZ","type":"function","function":{"name":"Write","arguments":"{}"}}]`),
+		},
+		{Role: "tool", ToolCallId: "chatcmpl-tool-def", Content: "done"},
+		{Role: "tool", ToolCallId: "Abc123XYZ", Content: "written"},
+	}})
+	require.NoError(t, err)
+	require.Len(t, nextTurn.Messages, 5)
+
+	require.Equal(t, newId, nextTurn.Messages[0].ParseToolCalls()[0].ID)
+	require.Equal(t, newId, nextTurn.Messages[1].ToolCallId)
+
+	secondCalls := nextTurn.Messages[2].ParseToolCalls()
+	require.Len(t, secondCalls, 2)
+	require.Regexp(t, mistralToolCallIdRegexp, secondCalls[0].ID)
+	require.NotEqual(t, newId, secondCalls[0].ID)
+	require.Equal(t, secondCalls[0].ID, nextTurn.Messages[3].ToolCallId)
+	require.Equal(t, "Abc123XYZ", secondCalls[1].ID)
+	require.Equal(t, "Abc123XYZ", nextTurn.Messages[4].ToolCallId)
 }
 
 func TestRequestOpenAI2MistralForwardsPromptCacheKey(t *testing.T) {
