@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { createInstance } from 'i18next'
 import { I18nextProvider, initReactI18next } from 'react-i18next'
 import { beforeEach, expect, it, vi } from 'vitest'
@@ -125,3 +125,63 @@ it.each([
     expect(screen.getByPlaceholderText('Minimum 1')).toBeVisible()
   }
 )
+
+it('handles redemption code validation, submission, link, and inline success state', () => {
+  const onRedeem = vi.fn()
+  const baseProps = {
+    topupInfo: {
+      enable_online_topup: false,
+      enable_stripe_topup: false,
+      enable_redemption: true,
+      pay_methods: [],
+      min_topup: 1,
+      stripe_min_topup: 1,
+      amount_options: [],
+      discount: {},
+    },
+    presetAmounts: [],
+    selectedPreset: null,
+    topupAmount: 0,
+    paymentAmount: 0,
+    calculating: false,
+    paymentLoading: null,
+    redeeming: false,
+    topupLink: 'https://example.com/codes',
+    onSelectPreset: vi.fn(),
+    onTopupAmountChange: vi.fn(),
+    onPaymentMethodSelect: vi.fn(),
+    onRedemptionCodeChange: vi.fn(),
+    onRedeem,
+  }
+
+  const { rerender } = render(
+    <I18nextProvider i18n={i18n}>
+      <RechargeFormCard {...baseProps} redemptionCode='   ' />
+    </I18nextProvider>
+  )
+
+  const redeemButton = screen.getByRole('button', { name: '兑换额度' })
+  expect(redeemButton).toBeDisabled()
+  const codeLink = screen.getByRole('link', { name: '点此获取' })
+  expect(codeLink).toHaveAttribute('href', 'https://example.com/codes')
+
+  rerender(
+    <I18nextProvider i18n={i18n}>
+      <RechargeFormCard
+        {...baseProps}
+        redemptionCode='CODE-2026'
+        lastRedeemedQuota={500000}
+      />
+    </I18nextProvider>
+  )
+
+  const activeButton = screen.getByRole('button', { name: '兑换额度' })
+  expect(activeButton).toBeEnabled()
+  const form = activeButton.closest('form')
+  expect(form).not.toBeNull()
+  if (form) {
+    fireEvent.submit(form)
+  }
+  expect(onRedeem).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole('status')).toHaveTextContent('兑换成功！已添加：')
+})

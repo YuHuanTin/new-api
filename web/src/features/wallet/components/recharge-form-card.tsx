@@ -16,8 +16,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Gift, ExternalLink, Loader2, Receipt, WalletCards } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import {
+  CheckCircle2,
+  ClipboardPaste,
+  ExternalLink,
+  Gift,
+  Loader2,
+  Receipt,
+  Ticket,
+  WalletCards,
+  X,
+} from 'lucide-react'
+import { useState, useEffect, type FormEvent } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -25,6 +35,12 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { Input } from '@/components/ui/input'
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from '@/components/ui/input-group'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TitledCard } from '@/components/ui/titled-card'
@@ -34,7 +50,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { formatNumber } from '@/lib/format'
+import { formatNumber, formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import {
@@ -68,6 +84,7 @@ interface RechargeFormCardProps {
   onRedemptionCodeChange: (code: string) => void
   onRedeem: () => void
   redeeming: boolean
+  lastRedeemedQuota?: number | null
   topupLink?: string
   loading?: boolean
   priceRatio?: number
@@ -98,6 +115,7 @@ export function RechargeFormCard({
   onRedemptionCodeChange,
   onRedeem,
   redeeming,
+  lastRedeemedQuota,
   topupLink,
   loading,
   priceRatio = 1,
@@ -142,6 +160,27 @@ export function RechargeFormCard({
     Array.isArray(waffoPayMethods) && waffoPayMethods.length > 0
   const minTopup = getMinTopupAmount(topupInfo)
   const redemptionEnabled = topupInfo?.enable_redemption !== false
+  const canPaste =
+    typeof navigator !== 'undefined' && Boolean(navigator.clipboard?.readText)
+  const hasRedemptionCode = redemptionCode.trim() !== ''
+
+  const handleRedeemSubmit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (!hasRedemptionCode || redeeming) return
+    onRedeem()
+  }
+
+  const handlePasteCode = async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      const trimmed = text.trim()
+      if (trimmed) {
+        onRedemptionCodeChange(trimmed)
+      }
+    } catch {
+      // Ignore clipboard permission denial or unavailable context
+    }
+  }
 
   if (loading) {
     return (
@@ -515,49 +554,113 @@ export function RechargeFormCard({
 
       {/* Redemption Code Section */}
       {redemptionEnabled ? (
-        <div className='space-y-2.5 border-t pt-4 sm:space-y-3 sm:pt-6'>
-          <div className='flex items-center gap-2'>
-            <IconBadge tone='warning' size='xs'>
+        <div className='space-y-3 border-t pt-4 sm:space-y-4 sm:pt-6'>
+          <div className='flex items-start gap-3'>
+            <IconBadge tone='warning' size='sm'>
               <Gift />
             </IconBadge>
-            <Label
-              htmlFor='redemption-code'
-              className='text-muted-foreground text-xs font-medium tracking-wider uppercase'
-            >
-              {t('Have a Code?')}
-            </Label>
+            <div className='min-w-0'>
+              <div className='flex flex-wrap items-center gap-2'>
+                <Label
+                  htmlFor='redemption-code'
+                  className='text-foreground text-sm font-semibold'
+                >
+                  {t('Have a Code?')}
+                </Label>
+                {topupLink && (
+                  <a
+                    href={topupLink}
+                    target='_blank'
+                    rel='noopener noreferrer'
+                    className='rainbow-glow-btn group inline-flex shrink-0'
+                  >
+                    <span className='bg-background text-foreground group-hover:bg-background/95 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors'>
+                      {t('Get one here')}
+                      <ExternalLink
+                        aria-hidden='true'
+                        className='size-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5'
+                      />
+                    </span>
+                  </a>
+                )}
+              </div>
+              <p className='text-muted-foreground mt-0.5 text-xs'>
+                {t(
+                  'Enter a redemption code to credit your account immediately.'
+                )}
+              </p>
+            </div>
           </div>
-          <div className='grid grid-cols-[minmax(0,1fr)_auto] gap-2'>
-            <Input
-              id='redemption-code'
-              value={redemptionCode}
-              onChange={(e) => onRedemptionCodeChange(e.target.value)}
-              placeholder={t('Enter your redemption code')}
-              className='h-9 min-w-0'
-            />
+
+          <form
+            onSubmit={handleRedeemSubmit}
+            className='flex flex-col gap-2.5 sm:flex-row sm:items-center'
+          >
+            <InputGroup className='bg-background h-11 flex-1'>
+              <InputGroupAddon align='inline-start'>
+                <Ticket aria-hidden='true' className='size-4' />
+              </InputGroupAddon>
+              <InputGroupInput
+                id='redemption-code'
+                value={redemptionCode}
+                onChange={(e) => onRedemptionCodeChange(e.target.value)}
+                placeholder={t('Enter your redemption code')}
+                autoComplete='off'
+                spellCheck={false}
+                className='h-full font-mono text-sm tracking-wide'
+              />
+              {redemptionCode.length > 0 ? (
+                <InputGroupAddon align='inline-end'>
+                  <InputGroupButton
+                    size='icon-xs'
+                    onClick={() => onRedemptionCodeChange('')}
+                    disabled={redeeming}
+                    aria-label={t('Clear')}
+                  >
+                    <X aria-hidden='true' />
+                  </InputGroupButton>
+                </InputGroupAddon>
+              ) : (
+                canPaste && (
+                  <InputGroupAddon align='inline-end'>
+                    <InputGroupButton
+                      size='xs'
+                      onClick={() => void handlePasteCode()}
+                      disabled={redeeming}
+                    >
+                      <ClipboardPaste aria-hidden='true' />
+                      <span>{t('Paste')}</span>
+                    </InputGroupButton>
+                  </InputGroupAddon>
+                )
+              )}
+            </InputGroup>
             <Button
-              onClick={onRedeem}
-              disabled={redeeming}
-              variant='outline'
-              className='h-9 px-4'
+              type='submit'
+              disabled={redeeming || !hasRedemptionCode}
+              className='h-11 shrink-0 gap-2 px-5 sm:min-w-28'
             >
-              {redeeming && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
+              {redeeming ? (
+                <Loader2 aria-hidden='true' className='size-4 animate-spin' />
+              ) : (
+                <Gift aria-hidden='true' className='size-4' />
+              )}
               {t('Redeem')}
             </Button>
-          </div>
-          {topupLink && (
-            <p className='text-muted-foreground text-xs'>
-              {t('Need a redemption code?')}{' '}
-              <a
-                href={topupLink}
-                target='_blank'
-                rel='noopener noreferrer'
-                className='inline-flex items-center gap-1 underline-offset-4 hover:underline'
-              >
-                {t('Get one here')}
-                <ExternalLink className='h-3 w-3' />
-              </a>
-            </p>
+          </form>
+
+          {lastRedeemedQuota != null && lastRedeemedQuota > 0 && (
+            <div
+              role='status'
+              className='flex items-center gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-700 dark:text-emerald-400'
+            >
+              <CheckCircle2 aria-hidden='true' className='size-4 shrink-0' />
+              <span>
+                {t('Redemption successful! Added: {{quota}}', {
+                  quota: formatQuota(lastRedeemedQuota),
+                })}
+              </span>
+            </div>
           )}
         </div>
       ) : (

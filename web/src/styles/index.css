@@ -745,3 +745,72 @@ For commercial licensing, please contact support@quantumnous.com
     display: none;
   }
 }
+
+@property --rainbow-glow-angle {
+  syntax: '<angle>';
+  inherits: true;
+  initial-value: 0deg;
+}
+
+@keyframes rainbow-glow-spin {
+  to {
+    --rainbow-glow-angle: 360deg;
+  }
+}
+
+@keyframes rainbow-glow-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+.rainbow-glow-btn {
+  position: relative;
+  z-index: 0;
+  padding: 1.5px;
+  border-radius: 9999px;
+  background: conic-gradient(
+    from var(--rainbow-glow-angle),
+    #ff3b30,
+    #ff9500,
+    #ffcc00,
+    #34c759,
+    #00c7be,
+    #007aff,
+    #af52de,
+    #ff2d55,
+    #ff3b30
+  );
+  animation: rainbow-glow-spin 3.6s linear infinite;
+}
+
+.rainbow-glow-btn::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  z-index: -1;
+  border-radius: inherit;
+  background: inherit;
+  filter: blur(7px);
+  pointer-events: none;
+  animation: rainbow-glow-breathe 2.6s ease-in-out infinite;
+}
+
+.rainbow-glow-btn:hover::before {
+  opacity: 0.95;
+  filter: blur(9px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rainbow-glow-btn,
+  .rainbow-glow-btn::before {
+    animation: none;
+  }
+  .rainbow-glow-btn::before {
+    opacity: 0.45;
+  }
+}

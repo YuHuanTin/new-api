@@ -103,7 +103,8 @@ export function Wallet(props: WalletProps) {
     transferQuota,
     transferring,
   } = useAffiliate()
-  const { redeeming, redeemCode } = useRedemption()
+  const { redeeming, lastRedeemedQuota, clearLastRedeemed, redeemCode } =
+    useRedemption()
   const { processing: creemProcessing, processCreemPayment } = useCreemPayment()
   const { processing: waffoProcessing, processWaffoPayment } = useWaffoPayment()
   const { processing: pancakeProcessing, processWaffoPancakePayment } =
@@ -213,12 +214,19 @@ export function Wallet(props: WalletProps) {
 
   // Handle redemption
   const handleRedeem = async () => {
-    if (!redemptionCode) return
+    if (!redemptionCode.trim()) return
 
     const success = await redeemCode(redemptionCode)
     if (success) {
       setRedemptionCode('')
       await fetchUser()
+    }
+  }
+
+  const handleRedemptionCodeChange = (code: string) => {
+    setRedemptionCode(code)
+    if (lastRedeemedQuota != null) {
+      clearLastRedeemed()
     }
   }
 
@@ -310,9 +318,10 @@ export function Wallet(props: WalletProps) {
                   onPaymentMethodSelect={handlePaymentMethodSelect}
                   paymentLoading={paymentLoading}
                   redemptionCode={redemptionCode}
-                  onRedemptionCodeChange={setRedemptionCode}
+                  onRedemptionCodeChange={handleRedemptionCodeChange}
                   onRedeem={handleRedeem}
                   redeeming={redeeming}
+                  lastRedeemedQuota={lastRedeemedQuota}
                   topupLink={topupInfo?.topup_link}
                   loading={topupLoading}
                   priceRatio={(status?.price as number) || 1}
