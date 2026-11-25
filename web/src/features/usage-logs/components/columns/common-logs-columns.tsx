@@ -450,13 +450,13 @@ export function useCommonLogsColumns(
                       />
                       {showMultiKeyIndex && (
                         <StatusBadge
-                          label={String(multiKeyIndex)}
+                          label={String(multiKeyIndex + 1)}
                           size='sm'
                           showDot={false}
                           copyable={false}
                           variant='neutral'
                           className='h-5 min-w-5 justify-center rounded-full px-1 font-mono text-xs'
-                          aria-label={`${t('Key')} ${multiKeyIndex}`}
+                          aria-label={`${t('Key')} ${multiKeyIndex + 1}`}
                         />
                       )}
                       {hasRetryChain && (
@@ -530,7 +530,7 @@ export function useCommonLogsColumns(
                       )}
                       {showMultiKeyIndex && (
                         <p className='text-muted-foreground text-xs'>
-                          {t('Key')}: {multiKeyIndex}
+                          {t('Key')}: {multiKeyIndex + 1}
                         </p>
                       )}
                       {affinity && (
