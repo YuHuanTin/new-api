@@ -25,7 +25,7 @@ import {
   ChevronUp,
   Sparkles,
 } from 'lucide-react'
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -41,14 +41,27 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from '@/components/ui/tooltip'
+import { useMediaQuery } from '@/hooks/use-media-query'
 import { formatQuotaWithCurrency } from '@/lib/currency'
 import dayjs from '@/lib/dayjs'
 import { handleServerError } from '@/lib/handle-server-error'
 import { createServerError } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
+import '@/styles/checkin-wish.css'
+
 import { getCheckinStatus, performCheckin } from '../api'
 import type { CheckinRecord } from '../types'
+import { CheckinCardPreview, type CheckinCardNumber } from './checkin-card-art'
+import { CheckinCardTear } from './checkin-card-tear'
+
+const CHECKIN_CARDS: CheckinCardNumber[] = [1, 2, 3]
+
+type CheckinDraw =
+  | 'closed'
+  | 'choose'
+  | { card: CheckinCardNumber; torn: boolean }
+type DrawVerification = { token?: string; torn: boolean; submitting: boolean }
 
 interface CheckinCalendarCardProps {
   checkinEnabled: boolean
@@ -67,10 +80,15 @@ export function CheckinCalendarCard({
     return new Date(now.getFullYear(), now.getMonth(), 1)
   })
   const [checkinLoading, setCheckinLoading] = useState(false)
-  const [turnstileModalVisible, setTurnstileModalVisible] = useState(false)
-  const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
+  const [latestAward, setLatestAward] = useState<CheckinRecord | null>(null)
+  const [draw, setDraw] = useState<CheckinDraw>('closed')
+  const [verificationFailed, setVerificationFailed] = useState(false)
+  const verification = useRef<DrawVerification | null>(null)
   const [initialLoaded, setInitialLoaded] = useState(false)
   const [collapsed, setCollapsed] = useState<boolean>(false)
+  const compactVerification = useMediaQuery('(max-width: 359px)')
+  const drawOpen = draw !== 'closed'
+  const selectedCard = typeof draw === 'object' ? draw : null
 
   const currentMonthStr = useMemo(() => {
     const y = currentMonth.getFullYear()
@@ -115,13 +133,11 @@ export function CheckinCalendarCard({
     )
   }, [checkinData?.stats?.records])
 
-  const todayString = useMemo(() => {
-    const d = new Date()
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  }, [])
-
+  const todayString = dayjs().format('YYYY-MM-DD')
   const checkedToday = checkinData?.stats?.checked_in_today === true
   const todayAward = checkinRecordsMap[todayString]
+  const drawnAward =
+    latestAward?.checkin_date === todayString ? latestAward.quota_awarded : null
 
   useEffect(() => {
     if (initialLoaded) return
@@ -131,48 +147,75 @@ export function CheckinCalendarCard({
     setInitialLoaded(true)
   }, [checkinData, checkedToday, initialLoaded, isLoading])
 
-  const shouldTriggerTurnstile = useCallback(
-    (message?: string) => {
-      if (!turnstileEnabled) return false
-      if (typeof message !== 'string') return true
-      return message.includes('Turnstile')
+  const closeDraw = useCallback(() => {
+    verification.current = null
+    setDraw('closed')
+  }, [])
+
+  const doCheckin = useCallback(async () => {
+    const session = verification.current
+    if (
+      !session?.torn ||
+      session.submitting ||
+      (turnstileEnabled && !session.token)
+    ) {
+      return
+    }
+    const token = session.token
+    session.token = undefined
+    session.submitting = true
+    setCheckinLoading(true)
+    try {
+      const res = await performCheckin(token)
+      if (!res.success || !res.data) {
+        throw createServerError(res, t('Check-in failed'))
+      }
+      closeDraw()
+      setLatestAward({
+        checkin_date: dayjs().format('YYYY-MM-DD'),
+        quota_awarded: res.data.quota_awarded,
+      })
+      toast.success(
+        `${t('Check-in successful! Received')} ${formatQuotaWithCurrency(res.data.quota_awarded)}`
+      )
+      refetch()
+    } catch (error) {
+      handleServerError(error, t('Check-in failed'))
+      session.torn = false
+      setDraw('choose')
+      if (turnstileEnabled) setVerificationFailed(true)
+    } finally {
+      session.submitting = false
+      setCheckinLoading(false)
+    }
+  }, [closeDraw, refetch, t, turnstileEnabled])
+
+  const handleCardTorn = useCallback(() => {
+    const session = verification.current
+    if (!session || session.torn) return
+    session.torn = true
+    setDraw((current) =>
+      typeof current === 'object' ? { ...current, torn: true } : current
+    )
+    void doCheckin()
+  }, [doCheckin])
+
+  const handleTurnstileVerify = useCallback(
+    (token: string) => {
+      const session = verification.current
+      if (!session || session.submitting) return
+      session.token = token
+      void doCheckin()
     },
-    [turnstileEnabled]
+    [doCheckin]
   )
 
-  const doCheckin = useCallback(
-    async (token?: string) => {
-      setCheckinLoading(true)
-      try {
-        const res = await performCheckin(token)
-        if (res.success && res.data) {
-          toast.success(
-            `${t('Check-in successful! Received')} ${formatQuotaWithCurrency(res.data.quota_awarded)}`
-          )
-          refetch()
-          setTurnstileModalVisible(false)
-        } else {
-          if (!token && shouldTriggerTurnstile(res.message)) {
-            if (!turnstileSiteKey) {
-              toast.error(t('Turnstile is enabled but site key is empty.'))
-              return
-            }
-            setTurnstileModalVisible(true)
-            return
-          }
-          if (token && shouldTriggerTurnstile(res.message)) {
-            setTurnstileWidgetKey((v) => v + 1)
-          }
-          handleServerError(res, t('Check-in failed'))
-        }
-      } catch (error) {
-        handleServerError(error, t('Check-in failed'))
-      } finally {
-        setCheckinLoading(false)
-      }
-    },
-    [refetch, shouldTriggerTurnstile, t, turnstileSiteKey]
-  )
+  const handleTurnstileExpire = useCallback(() => {
+    const session = verification.current
+    if (!session || session.submitting) return
+    session.token = undefined
+    setVerificationFailed(true)
+  }, [])
 
   const handlePrevMonth = () => {
     setCurrentMonth(
@@ -247,39 +290,92 @@ export function CheckinCalendarCard({
   let checkinButtonLabel = t('Check in now')
   if (checkinLoading) {
     checkinButtonLabel = t('Loading...')
-  } else if (checkedToday) {
+  } else if (checkedToday || drawnAward !== null) {
     checkinButtonLabel = t('Checked in')
   }
 
   return (
     <TooltipProvider delay={100}>
       <Dialog
-        open={turnstileModalVisible}
+        open={drawOpen}
         onOpenChange={(open) => {
-          setTurnstileModalVisible(open)
-          if (!open) {
-            setTurnstileWidgetKey((v) => v + 1)
-          }
+          if (!open && !verification.current?.submitting) closeDraw()
         }}
-        title={t('Security Check')}
-        contentClassName='sm:max-w-md'
-        contentHeight='auto'
-        bodyClassName='space-y-4'
+        title={
+          selectedCard === null
+            ? t('Choose a card to reveal your reward')
+            : t('Tear open card')
+        }
+        titleClassName='sr-only'
+        headerClassName='absolute'
+        contentClassName='max-h-[95dvh] w-[min(calc(100vw-16px),1000px)] max-w-none overflow-hidden rounded-2xl bg-[#101d23] p-0 text-amber-50 ring-amber-100/20 sm:max-w-none sm:p-0 [&_[data-slot=dialog-close]:hover]:bg-amber-100/10 [&_[data-slot=dialog-close]:hover]:text-amber-50'
+        bodyClassName='p-0'
       >
-        <div className='text-muted-foreground text-sm'>
-          {t('Please complete the security check to continue.')}
-        </div>
-        <div className='flex justify-center py-4'>
-          <Turnstile
-            key={turnstileWidgetKey}
-            siteKey={turnstileSiteKey}
-            onVerify={(token) => {
-              doCheckin(token)
-            }}
-            onExpire={() => {
-              setTurnstileWidgetKey((v) => v + 1)
-            }}
-          />
+        <div className='checkin-wish-stage relative flex min-h-[min(76dvh,620px)] flex-col items-center justify-center overflow-hidden px-3 py-10 text-center sm:px-8 sm:py-12'>
+          {drawOpen && turnstileEnabled && (
+            <div className='relative z-30 order-last mt-3 flex flex-col items-center gap-2'>
+              {verificationFailed ? (
+                <>
+                  <p className='text-xs text-sky-100' role='alert'>
+                    {t('Verification failed. Please try again.')}
+                  </p>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() => setVerificationFailed(false)}
+                  >
+                    {t('Retry')}
+                  </Button>
+                </>
+              ) : (
+                <Turnstile
+                  siteKey={turnstileSiteKey}
+                  size={compactVerification ? 'compact' : 'normal'}
+                  onVerify={handleTurnstileVerify}
+                  onExpire={handleTurnstileExpire}
+                />
+              )}
+            </div>
+          )}
+          <div className='w-full'>
+            {selectedCard === null ? (
+              <>
+                <div
+                  className='mx-auto mb-3 h-px w-24 bg-gradient-to-r from-transparent via-amber-200 to-transparent'
+                  aria-hidden='true'
+                />
+                <p className='text-sm font-medium tracking-wide text-amber-50 sm:text-base'>
+                  {t('Choose a card to reveal your reward')}
+                </p>
+                <div className='checkin-wish-card-grid mt-8'>
+                  {CHECKIN_CARDS.map((card) => (
+                    <div key={card} className='checkin-wish-card min-w-0'>
+                      <Button
+                        variant='ghost'
+                        aria-label={t('Card {{number}}', { number: card })}
+                        onClick={() => setDraw({ card, torn: false })}
+                        className='checkin-wish-card-face checkin-wish-card-picker rounded-lg border-0 bg-transparent p-0 hover:bg-transparent focus-visible:ring-amber-200 motion-reduce:transform-none motion-reduce:transition-none dark:hover:bg-transparent'
+                      >
+                        <CheckinCardPreview />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <CheckinCardTear
+                card={selectedCard.card}
+                onTorn={handleCardTorn}
+              />
+            )}
+            {(checkinLoading || selectedCard?.torn) && (
+              <p className='mt-5 text-xs text-amber-50/85' role='status'>
+                {checkinLoading
+                  ? t('Loading...')
+                  : t('Please complete the security check to continue.')}
+              </p>
+            )}
+          </div>
         </div>
       </Dialog>
 
@@ -325,8 +421,12 @@ export function CheckinCalendarCard({
               </div>
             </button>
             <Button
-              onClick={() => doCheckin()}
-              disabled={checkinLoading || checkedToday}
+              onClick={() => {
+                verification.current = { torn: false, submitting: false }
+                setVerificationFailed(false)
+                setDraw('choose')
+              }}
+              disabled={checkinLoading || checkedToday || drawnAward !== null}
               size='sm'
               className='w-full shrink-0 sm:w-auto'
             >
@@ -334,6 +434,30 @@ export function CheckinCalendarCard({
             </Button>
           </div>
         </div>
+
+        {drawnAward !== null && (
+          <div className='border-b p-4 sm:p-6'>
+            <div className='checkin-wish-stage relative flex min-h-56 flex-col items-center justify-center overflow-hidden rounded-xl px-5 py-8 text-center text-amber-50'>
+              <div
+                className='relative flex flex-col items-center gap-3'
+                role='status'
+              >
+                <span className='flex size-14 items-center justify-center rounded-full border border-amber-100/60 bg-amber-100/15 text-amber-100 shadow-[0_0_35px_rgba(253,230,138,0.45)]'>
+                  <Sparkles className='size-7' aria-hidden='true' />
+                </span>
+                <span className='text-sm text-amber-50'>
+                  {t('Check-in successful! Received')}
+                </span>
+                <span className='text-2xl font-bold tracking-tight text-amber-100'>
+                  +{formatQuotaWithCurrency(drawnAward)}
+                </span>
+                <span className='text-xs text-amber-50/80'>
+                  {t('Checked in')}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {!collapsed ? (
           <>

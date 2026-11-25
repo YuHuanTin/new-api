@@ -746,7 +746,7 @@ export function FlowCharts(props: FlowChartsProps) {
         <ChannelProfitCalculator
           rows={flowRows ?? []}
           selectedUsers={selectedUsers}
-          rangeKey={`${timeRange.start}_${timeRange.end}`}
+          rangeKey={`${timeRange.start_timestamp}_${timeRange.end_timestamp}`}
           maskSensitive={maskSensitive}
         />
       )}

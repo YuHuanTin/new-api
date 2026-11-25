@@ -38,7 +38,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { FlowQuotaDataItem } from '@/features/dashboard/types'
 import { toIntlLocale } from '@/i18n/languages'
 import { formatLocalCurrencyAmount } from '@/lib/currency'
-import { formatNumber } from '@/lib/format'
+import { formatNumber, formatPercentOneDecimal } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import {
   useSystemConfigStore,
@@ -311,8 +311,7 @@ export function ChannelProfitCalculator(props: ChannelProfitCalculatorProps) {
   )
 
   const formatMargin = useCallback(
-    (value: number) =>
-      `${formatNumber(value, locale, { maximumFractionDigits: 1 })}%`,
+    (value: number) => formatPercentOneDecimal(value, locale),
     [locale]
   )
 
