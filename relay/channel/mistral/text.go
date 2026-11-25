@@ -3,11 +3,13 @@ package mistral
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/MoeForge/moego/regexp"
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
@@ -16,6 +18,25 @@ const mistralToolCallIDChars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl
 var mistralToolCallIdRegexp = regexp.MustCompile("^[a-zA-Z0-9]{9}$")
 
 func requestOpenAI2Mistral(request *dto.GeneralOpenAIRequest) (*dto.GeneralOpenAIRequest, error) {
+	var metadata map[string]common.RawMessage
+	if len(request.Metadata) > 0 {
+		if err := common.Unmarshal(request.Metadata, &metadata); err != nil {
+			return nil, fmt.Errorf("invalid Mistral request metadata: %w", err)
+		}
+	}
+	upstreamMetadata := request.Metadata
+	if _, exists := metadata["call_source"]; !exists {
+		if metadata == nil {
+			metadata = make(map[string]common.RawMessage)
+		}
+		metadata["call_source"] = common.RawMessage(`"vibe_code"`)
+		var err error
+		upstreamMetadata, err = common.Marshal(metadata)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	messages := make([]dto.Message, 0, len(request.Messages))
 	idMap := make(map[string]string)
 	used := make(map[string]struct{})
@@ -118,6 +139,7 @@ func requestOpenAI2Mistral(request *dto.GeneralOpenAIRequest) (*dto.GeneralOpenA
 		ToolChoice:     request.ToolChoice,
 		ResponseFormat: request.ResponseFormat,
 		PromptCacheKey: request.PromptCacheKey,
+		Metadata:       upstreamMetadata,
 		// 推理强度必须转发，否则客户端设置的 effort 会被静默丢弃
 		ReasoningEffort: mistralReasoningEffort(request.Model, request.ReasoningEffort),
 	}

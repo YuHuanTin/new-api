@@ -175,6 +175,40 @@ func TestRequestOpenAI2MistralForwardsPromptCacheKey(t *testing.T) {
 	require.Equal(t, "session-key", converted.PromptCacheKey)
 }
 
+func TestConvertOpenAIRequestDefaultsMistralCallSource(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		metadata string
+		want     string
+	}{
+		{name: "omitted", want: `{"call_source":"vibe_code"}`},
+		{name: "null", metadata: `null`, want: `{"call_source":"vibe_code"}`},
+		{name: "merge", metadata: `{"session_id":"client-session","enabled":false}`, want: `{"call_source":"vibe_code","session_id":"client-session","enabled":false}`},
+		{name: "existing source", metadata: `{"call_source":"custom","session_id":"client-session"}`, want: `{"call_source":"custom","session_id":"client-session"}`},
+		{name: "non-object", metadata: `["custom"]`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			converted, err := (&Adaptor{}).ConvertOpenAIRequest(nil, nil, &dto.GeneralOpenAIRequest{
+				Model:    "deepseek-v4-1-flash-1017",
+				Messages: []dto.Message{{Role: "user", Content: "hi"}},
+				Metadata: common.RawMessage(test.metadata),
+			})
+			if test.want == "" {
+				require.ErrorContains(t, err, "invalid Mistral request metadata")
+				return
+			}
+			require.NoError(t, err)
+			body, err := common.Marshal(converted)
+			require.NoError(t, err)
+			var upstream struct {
+				Metadata common.RawMessage `json:"metadata"`
+			}
+			require.NoError(t, common.Unmarshal(body, &upstream))
+			assert.JSONEq(t, test.want, string(upstream.Metadata))
+		})
+	}
+}
+
 func TestConvertClaudeRequestUsesSessionIdAsPromptCacheKey(t *testing.T) {
 	info := &relaycommon.RelayInfo{
 		ChannelMeta: &relaycommon.ChannelMeta{
