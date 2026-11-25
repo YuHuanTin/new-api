@@ -36,6 +36,7 @@ import { OverviewDashboard } from '../overview-dashboard'
 const storageKey = 'dashboard_overview_setup_guide_expanded'
 let client: QueryClient
 let keyLookupError: Error | null
+let checkinEnabled: boolean
 
 beforeEach(() => {
   window.localStorage.clear()
@@ -52,6 +53,7 @@ beforeEach(() => {
     defaultOptions: { queries: { retry: false } },
   })
   keyLookupError = null
+  checkinEnabled = false
   vi.spyOn(api, 'get').mockImplementation(async (url) => {
     switch (url) {
       case '/api/token/?p=1&size=10':
@@ -72,6 +74,7 @@ beforeEach(() => {
               announcements_enabled: false,
               faq_enabled: false,
               uptime_kuma_enabled: false,
+              checkin_enabled: checkinEnabled,
             },
           },
         }
@@ -107,6 +110,28 @@ async function renderOverview() {
 }
 
 describe('overview setup guide', () => {
+  it('shows the daily check-in link below the wallet when check-in is enabled', async () => {
+    checkinEnabled = true
+    await renderOverview()
+
+    const link = await screen.findByRole('button', { name: 'Daily Check-in' })
+    expect(link).toHaveAttribute('href', '/profile#checkin')
+    expect(
+      screen
+        .getByRole('button', { name: 'Wallet' })
+        .compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
+  it('hides the daily check-in link when check-in is disabled', async () => {
+    await renderOverview()
+    await screen.findByRole('button', { name: 'Wallet' })
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/status'))
+    expect(
+      screen.queryByRole('button', { name: 'Daily Check-in' })
+    ).not.toBeInTheDocument()
+  })
+
   it('shows usage first and only a header entry when setup is complete', async () => {
     await renderOverview()
 

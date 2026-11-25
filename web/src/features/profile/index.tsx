@@ -72,11 +72,13 @@ export function Profile() {
 
               <div className='space-y-4 sm:space-y-6 xl:sticky xl:top-6'>
                 {checkinEnabled && (
-                  <CheckinCalendarCard
-                    checkinEnabled={checkinEnabled}
-                    turnstileEnabled={turnstileEnabled}
-                    turnstileSiteKey={turnstileSiteKey}
-                  />
+                  <div id='checkin'>
+                    <CheckinCalendarCard
+                      checkinEnabled={checkinEnabled}
+                      turnstileEnabled={turnstileEnabled}
+                      turnstileSiteKey={turnstileSiteKey}
+                    />
+                  </div>
                 )}
                 {canConfigureSidebar && <SidebarModulesCard />}
               </div>

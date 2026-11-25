@@ -347,10 +347,22 @@ export function SummaryCards() {
             </div>
           </div>
 
-          <Button className='justify-between' render={<Link to='/wallet' />}>
-            <span>{t('Wallet')}</span>
-            <ArrowRight data-icon='inline-end' />
-          </Button>
+          <div className='flex flex-col gap-2'>
+            <Button className='justify-between' render={<Link to='/wallet' />}>
+              <span>{t('Wallet')}</span>
+              <ArrowRight data-icon='inline-end' />
+            </Button>
+            {status?.checkin_enabled === true && (
+              <Button
+                variant='outline'
+                className='justify-between'
+                render={<Link to='/profile' hash='checkin' />}
+              >
+                <span>{t('Daily Check-in')}</span>
+                <ArrowRight data-icon='inline-end' />
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </div>
